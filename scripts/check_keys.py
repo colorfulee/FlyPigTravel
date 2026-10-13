@@ -13,7 +13,7 @@ print(f"百炼地址：{settings.bailian_base_url}")
 try:
     b = Bailian()
     print("  文本", settings.text_model, "→", b.chat_json("只输出 JSON", '回复 {"ok": true}'))
-    img = "https://img.alicdn.com/imgextra/i3/O1CN01MbYnKk1kkHO3hCJpa_!!6000000004721-2-tps-1024-1024.png"
+    img = "https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg"  # 百炼文档示例图
     print("  视觉", settings.vl_model, "→", b.vision_json(img, '描述图片，输出 {"desc": "..."}'))
 except (LLMError, Exception) as e:  # noqa: BLE001
     ok = False
