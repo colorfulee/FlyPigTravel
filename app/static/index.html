@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>住进去 · 酒店入住旅程设计师</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --ink: #1f2328; --muted: #6b6f76; --line: #e7e3da;
+    --accent: #ff6a00; --accent-soft: #fff1e6;
+    --s-pkg: #b45309; --s-rev: #2563eb; --s-img: #7c3aed; --s-near: #059669; --s-tbd: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px 16px 64px; }
+  h1 { font-size: 26px; margin: 8px 0 0; }
+  h1 small { font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 14px; }
+  textarea { width: 100%; min-height: 76px; border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+             font: inherit; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .5; }
+  label.upload { font-size: 13px; color: var(--accent); cursor: pointer; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hotel { display: flex; gap: 12px; }
+  .hotel img { width: 112px; height: 84px; object-fit: cover; border-radius: 10px; background: var(--line); flex-shrink: 0; }
+  .price { color: var(--accent); font-weight: 700; }
+  a.book { display: inline-block; margin-top: 6px; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab { flex: 1; text-align: center; padding: 8px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; background: #fff; }
+  .tab.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .headline { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .day { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  .item { display: grid; grid-template-columns: 52px 1fr; gap: 8px; padding: 8px 0; border-top: 1px dashed var(--line); }
+  .item .t { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid currentColor; margin-left: 6px; vertical-align: 1px; }
+  .s-套餐权益 { color: var(--s-pkg); } .s-用户评价 { color: var(--s-rev); } .s-图片识别 { color: var(--s-img); }
+  .s-周边数据 { color: var(--s-near); } .s-待确认 { color: var(--s-tbd); }
+  .ring { font-size: 12px; color: var(--muted); }
+  .remind { display: grid; grid-template-columns: 10px 1fr; gap: 10px; padding: 6px 0; }
+  .remind::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-top: 7px; }
+  .remind .w { font-size: 12px; color: var(--muted); }
+  .exp { padding: 8px 0; border-top: 1px solid var(--line); }
+  .exp .ev { font-size: 12px; color: var(--muted); }
+  .confirm { padding: 8px 0; border-top: 1px solid var(--line); }
+  .confirm button { font-size: 12px; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  svg text { font-size: 11px; fill: var(--ink); }
+  .warn { background: #fff7e0; border: 1px solid #f5d27a; border-radius: 10px; padding: 8px 12px; font-size: 13px; margin-top: 14px; }
+  .err { background: #fdecec; border-color: #f2b8b5; }
+  #progress { margin-top: 10px; }
+  .hidden { display: none; }
+  footer { text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>住进去 <small>让一次入住，成为一段完整旅程</small></h1>
+
+  <section class="card">
+    <textarea id="q" placeholder="例如：这周末带 5 岁娃在上海住一晚，预算 1500，想玩水"></textarea>
+    <div class="row" style="margin-top:8px" id="examples"></div>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <label class="upload">📷 上传种草截图找同款<input id="shot" type="file" accept="image/*" hidden></label>
+      <button class="primary" id="go">设计我的旅程</button>
+    </div>
+    <div id="progress" class="muted hidden"></div>
+  </section>
+
+  <div id="status"></div>
+  <div id="result" class="hidden">
+    <section class="card" id="hotelCard"></section>
+    <section class="card">
+      <div class="tabs" id="tabs"></div>
+      <div id="journey"></div>
+    </section>
+    <section class="card">
+      <h2>主动提醒 <span class="muted">到点推送给你</span></h2>
+      <div id="reminders"></div>
+    </section>
+    <section class="card">
+      <h2>酒店内外 · 空间分布</h2>
+      <div id="map"></div>
+      <p class="muted">中心为酒店；内圈步行 20 分钟，外圈车程 30 分钟左右。方位按真实坐标。</p>
+    </section>
+    <section class="card">
+      <h2>体验清单 <span class="muted">每一条都标明依据</span></h2>
+      <div id="exps"></div>
+    </section>
+    <section class="card" id="confirmCard">
+      <h2>入住前向酒店确认</h2>
+      <div id="confirm"></div>
+    </section>
+  </div>
+
+  <footer class="muted" id="foot">数据：飞猪 flyai · 理解与生成：阿里云百炼</footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => /^https?:\/\//.test(u || "") ? u : "";
+
+const EXAMPLES = [
+  "这周末带 5 岁娃在上海住一晚，预算 1500，想玩水",
+  "下周六结婚纪念日，杭州西湖边，想要景观和下午茶",
+  "一个人想在上海安静充电一晚，预算 1200",
+];
+$("examples").innerHTML = EXAMPLES.map((e) => `<span class="chip">${esc(e)}</span>`).join("");
+$("examples").onclick = (ev) => { if (ev.target.classList.contains("chip")) $("q").value = ev.target.textContent; };
+
+const STEPS = ["百炼理解你的需求…", "飞猪查询酒店与套餐…", "读懂酒店：套餐、评价、图片…", "按空间编排酒店内外体验…", "生成两种人群的旅程与提醒…"];
+let timer;
+function busy(on) {
+  $("go").disabled = on;
+  $("progress").classList.toggle("hidden", !on);
+  clearInterval(timer);
+  if (on) { let i = 0; $("progress").textContent = STEPS[0]; timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("progress").textContent = STEPS[i]; }, 4000); }
+}
+function showError(msg) { $("status").innerHTML = `<div class="warn err">${esc(msg)} <a href="#" id="snap">查看上一次结果</a></div>`; $("snap").onclick = loadSnapshot; }
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `请求失败 ${r.status}`);
+  return data;
+}
+
+$("go").onclick = async () => {
+  const text = $("q").value.trim();
+  if (!text) { $("q").focus(); return; }
+  busy(true); $("status").innerHTML = "";
+  try { render(await post("/api/plan", { text })); }
+  catch (e) { showError(e.message); }
+  finally { busy(false); }
+};
+
+$("shot").onchange = async (ev) => {
+  const file = ev.target.files[0]; if (!file) return;
+  const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(file); });
+  busy(true); $("progress").textContent = "百炼 Qwen-VL 识别截图中…";
+  try {
+    const r = await post("/api/screenshot", { image: dataUrl });
+    if (!r.hotel_name) throw new Error("截图里没认出酒店名，可以直接输入需求");
+    $("q").value = `${r.city || ""}${r.hotel_name}，${(r.highlights || []).join("、")}，这周末住一晚`;
+  } catch (e) { showError(e.message); }
+  finally { busy(false); ev.target.value = ""; }
+};
+
+async function loadSnapshot(ev) {
+  ev?.preventDefault();
+  try { const r = await fetch("/api/snapshot"); if (!r.ok) throw new Error("暂无历史结果"); render(await r.json()); $("status").insertAdjacentHTML("afterbegin", '<div class="warn">这是最近一次成功的规划结果</div>'); }
+  catch (e) { showError(e.message); }
+}
+
+let state;
+function render(d) {
+  state = d;
+  const byId = Object.fromEntries(d.experiences.map((e) => [e.id, e]));
+  const h = d.hotel;
+  const warns = [...d.warnings];
+  if (d.data_mode === "fixture") warns.unshift("当前为离线样例数据（FLYAI_MODE=fixture），不代表真实价格");
+  $("status").innerHTML = warns.map((w) => `<div class="warn">${esc(w)}</div>`).join("");
+
+  $("hotelCard").innerHTML = `
+    <div class="hotel">
+      ${safeUrl(h.pic) ? `<img src="${esc(h.pic)}" alt="">` : "<img alt=''>"}
+      <div>
+        <div style="font-weight:700">${esc(h.name)}</div>
+        <div class="muted">${esc(h.star)} · ${h.score ?? "-"} 分 · ${esc(h.interests_poi)}</div>
+        <div class="price">${esc(h.price_text || "价格见飞猪")}<span class="muted"> / 晚</span></div>
+        ${safeUrl(h.url) ? `<a class="book" href="${esc(h.url)}" target="_blank" rel="noopener">去飞猪预订 →</a>` : ""}
+      </div>
+    </div>
+    ${d.packages.map((p) => `<div class="exp"><span class="tag s-套餐权益" style="margin:0 6px 0 0">套餐</span>${esc(p.name)} <span class="price">${esc(p.price_text)}</span>
+      ${safeUrl(p.url) ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener">预订</a>` : ""}</div>`).join("")}
+    ${d.alternatives.length ? `<p class="muted">备选：${d.alternatives.map((a) => esc(a.name) + " " + esc(a.price_text)).join("；")}</p>` : ""}`;
+
+  $("tabs").innerHTML = d.journeys.map((j, i) => `<div class="tab ${i ? "" : "on"}" data-i="${i}">${esc(j.persona)}版</div>`).join("");
+  $("tabs").onclick = (ev) => { const i = ev.target.dataset.i; if (i === undefined) return;
+    [...$("tabs").children].forEach((t) => t.classList.toggle("on", t.dataset.i === i)); showJourney(+i, byId); };
+  showJourney(0, byId);
+
+  $("exps").innerHTML = d.experiences.map((e) => `
+    <div class="exp"><b>${esc(e.title)}</b><span class="tag s-${esc(e.source)}">${esc(e.source)}</span>
+      <span class="ring"> · ${esc(e.ring)}${e.minutes ? ` 约${e.minutes}分钟` : ""}</span>
+      <div class="ev">${esc(e.detail)}${e.evidence ? ` ｜依据：${esc(e.evidence)}` : ""}</div></div>`).join("");
+
+  $("confirmCard").classList.toggle("hidden", !d.to_confirm.length);
+  $("confirm").innerHTML = d.to_confirm.map((c, i) => `
+    <div class="confirm">${esc(c.question)}<div class="muted">${esc(c.script)}</div><button data-i="${i}">复制话术</button></div>`).join("");
+  $("confirm").onclick = (ev) => { const i = ev.target.dataset?.i; if (i === undefined) return;
+    navigator.clipboard?.writeText(d.to_confirm[i].script); ev.target.textContent = "已复制"; };
+
+  drawMap(d.experiences);
+  $("result").classList.remove("hidden");
+}
+
+function showJourney(i, byId) {
+  const j = state.journeys[i];
+  const days = [0, 1].map((day) => {
+    const items = j.timeline.filter((t) => t.day === day);
+    if (!items.length) return "";
+    return `<div class="day">${day === 0 ? "入住日 " + esc(state.intent.check_in) : "次日 " + esc(state.intent.check_out)}</div>` +
+      items.map((t) => { const e = byId[t.experience_id] || {};
+        return `<div class="item"><div class="t">${esc(t.time)}</div><div><b>${esc(t.title)}</b>
+          <span class="tag s-${esc(e.source)}">${esc(e.source)}</span><span class="ring"> · ${esc(e.ring)}</span>
+          <div class="muted">${esc(t.note || e.detail)}</div></div></div>`; }).join("");
+  }).join("");
+  $("journey").innerHTML = `<div class="headline">${esc(j.headline)}</div>${days}`;
+  $("reminders").innerHTML = j.reminders.map((r) => `<div class="remind"><div><div class="w">${esc(r.when)}</div>${esc(r.message)}</div></div>`).join("")
+    || '<p class="muted">暂无</p>';
+}
+
+function drawMap(exps) {
+  const W = 320, C = W / 2, R1 = 70, R2 = 145;
+  const inside = exps.filter((e) => e.ring === "酒店内");
+  const placed = exps.filter((e) => e.bearing != null && e.distance_m != null);
+  const pos = (e) => {
+    const r = e.ring === "步行圈" ? 18 + (R1 - 18) * Math.min(e.distance_m / 1500, 1)
+                                 : R1 + (R2 - R1) * Math.min((e.distance_m - 1500) / 18500, 1);
+    const a = (e.bearing - 90) * Math.PI / 180;
+    return [C + r * Math.cos(a), C + r * Math.sin(a)];
+  };
+  $("map").innerHTML = `<svg viewBox="0 0 ${W} ${W}" width="100%" style="max-width:420px;display:block;margin:auto">
+    <circle cx="${C}" cy="${C}" r="${R2}" fill="#f0f7f3" stroke="#cfe5d8"/>
+    <circle cx="${C}" cy="${C}" r="${R1}" fill="#e3f1e9" stroke="#b9dcc8"/>
+    <circle cx="${C}" cy="${C}" r="16" fill="var(--accent)"/>
+    <text x="${C}" y="${C + 4}" text-anchor="middle" style="fill:#fff;font-weight:700">住</text>
+    <text x="${C}" y="${C - R1 + 14}" text-anchor="middle" class="muted">步行圈</text>
+    <text x="${C}" y="${C - R2 + 14}" text-anchor="middle">车程圈</text>
+    ${placed.map((e) => { const [x, y] = pos(e); return `<circle cx="${x}" cy="${y}" r="5" fill="var(--s-near)"/>
+      <text x="${x + 7}" y="${y + 4}">${esc(e.title.replace("【样例】", "").slice(0, 7))}</text>`; }).join("")}
+  </svg>
+  <p class="muted" style="text-align:center">酒店内：${inside.map((e) => esc(e.title)).join("、") || "—"}</p>`;
+}
+
+fetch("/api/health").then((r) => r.json()).then((h) => {
+  $("foot").textContent = `数据：飞猪 flyai（${h.flyai_mode === "live" ? "实时" : "样例"}） · 理解与生成：阿里云百炼 ${h.text_model} / ${h.vl_model}`;
+  if (!h.bailian) $("status").innerHTML = '<div class="warn err">未配置 DASHSCOPE_API_KEY，百炼不可用</div>';
+}).catch(() => {});
+</script>
+</body>
+</html>

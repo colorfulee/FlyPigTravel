@@ -1,0 +1,5 @@
+{"data":{"itemList":[
+{"id":"P1","name":"【样例】外滩观景平台","address":"上海市黄浦区中山东一路","latitude":"31.2405","longitude":"121.4920","mainPic":"","jumpUrl":"https://example.com/poi/P1","ticketInfo":{"price":null}},
+{"id":"P2","name":"【样例】上海博物馆","address":"上海市黄浦区人民大道201号","latitude":"31.2283","longitude":"121.4755","mainPic":"","jumpUrl":"https://example.com/poi/P2","ticketInfo":{"price":"0"}},
+{"id":"P3","name":"【样例】海洋水族馆","address":"上海市浦东新区陆家嘴环路1388号","latitude":"31.2405","longitude":"121.5020","mainPic":"","jumpUrl":"https://example.com/poi/P3","ticketInfo":{"price":"160"}}
+]},"message":"success","status":0}

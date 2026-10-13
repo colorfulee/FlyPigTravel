@@ -1,0 +1,4 @@
+{"data":{"itemList":[
+{"shId":"F001","name":"【样例】上海外滩江景酒店","price":"¥1288","score":"4.8","star":"豪华型","review":"江景房看外滩夜景太美了，室内恒温泳池人不多，早餐种类丰富","interestsPoi":"近外滩","address":"上海市黄浦区中山东一路","latitude":"31.2397","longitude":"121.4908","mainPic":"https://example.com/sample-hotel-1.jpg","detailUrl":"https://example.com/book/F001","brandName":"样例"},
+{"shId":"F002","name":"【样例】上海前滩亲子度假酒店","price":"¥980","score":"4.7","star":"高档型","review":"儿童乐园很大，孩子玩了一下午，亲子房有帐篷","interestsPoi":"近前滩太古里","address":"上海市浦东新区东育路","latitude":"31.1530","longitude":"121.4740","mainPic":"https://example.com/sample-hotel-2.jpg","detailUrl":"https://example.com/book/F002","brandName":"样例"}
+]},"message":"success","status":0}
