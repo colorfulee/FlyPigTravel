@@ -16,10 +16,10 @@ class FlyaiError(RuntimeError):
 
 
 def parse_price(text: str | None) -> int | None:
-    """'¥618' -> 618；脱敏价格（'¥2xx'）或空值返回 None。"""
+    """'¥618' / '¥987起/晚' / '￥999起/3晚' -> 数字；脱敏价格（'¥2xx'）或空值返回 None。"""
     if not text:
         return None
-    m = re.fullmatch(r"[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:起)?", str(text).strip())
+    m = re.fullmatch(r"[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:起)?(?:/\d*晚)?", str(text).strip())
     return int(float(m.group(1))) if m else None
 
 
@@ -106,9 +106,12 @@ class FlyaiClient:
         data = self.run("search-marriott-package", province_or_city=city, hotel_name=hotel_name)
         return [
             Package(
-                name=i.get("name", ""), hotel_name=i.get("hotelName", ""),
-                price_text=str(i.get("price") or ""), selling_point=i.get("sellingPoint") or "",
-                pic=i.get("mainPic") or "", url=i.get("detailUrl") or "",
+                # 线上返回 title/sellPoint/benefit/picUrl 且无 hotelName；样例数据用 name/sellingPoint
+                name=i.get("title") or i.get("name") or "", hotel_name=i.get("hotelName") or "",
+                price_text=str(i.get("price") or ""),
+                selling_point="；".join(filter(None, [i.get("sellPoint") or i.get("sellingPoint"),
+                                                     i.get("benefit")])),
+                pic=i.get("picUrl") or i.get("mainPic") or "", url=i.get("detailUrl") or "",
             )
             for i in self.items(data)
         ]
@@ -131,10 +134,12 @@ class FlyaiClient:
     @staticmethod
     def _hotel(i: dict, brand_default: str = "") -> Hotel:
         return Hotel(
-            id=str(i.get("shId") or i.get("name")), name=i.get("name", ""),
+            # search-hotel 用 shId/interestsPoi，search-marriott-hotel 用 shid/nearbyPoi
+            id=str(i.get("shId") or i.get("shid") or i.get("name")), name=i.get("name", ""),
             price=parse_price(i.get("price")), price_text=str(i.get("price") or ""),
-            score=_float(i.get("score")), star=i.get("star") or "",
-            review=i.get("review") or "", interests_poi=i.get("interestsPoi") or "",
+            score=_float(i.get("score") or i.get("rate")), star=i.get("star") or "",
+            review=i.get("review") or "",
+            interests_poi=i.get("interestsPoi") or i.get("nearbyPoi") or "",
             address=i.get("address") or "", lat=_float(i.get("latitude")),
             lng=_float(i.get("longitude")), pic=i.get("mainPic") or "",
             url=i.get("detailUrl") or "", brand=i.get("brandName") or brand_default,

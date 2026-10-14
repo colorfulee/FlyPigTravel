@@ -97,7 +97,12 @@ def recall(fly: FlyaiClient, intent: Intent, warnings: list[str]) -> tuple[list[
 
 
 def packages_of(hotel: Hotel, packages: list[Package]) -> list[Package]:
-    return [p for p in packages if p.hotel_name and (p.hotel_name in hotel.name or hotel.name in p.hotel_name)]
+    # 线上套餐没有 hotelName，单店套餐的标题以酒店名开头（如“上海漕河泾万丽酒店豪华房1晚+…”）；
+    # 多店通兑套餐不归属任何酒店
+    base = re.sub(r"[（(].*?[)）]", "", hotel.name).strip()
+    return [p for p in packages
+            if (p.hotel_name and (p.hotel_name in hotel.name or hotel.name in p.hotel_name))
+            or (not p.hotel_name and base and base in p.name)]
 
 
 def rank_hotels(hotels: list[Hotel], packages: list[Package], intent: Intent) -> list[Hotel]:

@@ -5,7 +5,7 @@ import pytest
 from app.flyai import FlyaiClient, parse_price
 from app.geo import Geocoder, haversine_m, ring_for
 from app.pipeline import (
-    checkout_time, fallback_journey, mine_hotel_experiences, next_saturday, parse_intent, plan,
+    checkout_time, fallback_journey, mine_hotel_experiences, next_saturday, packages_of, parse_intent, plan,
     rank_hotels, validate_journey,
 )
 from app.schemas import Experience, Hotel, Intent, Package
@@ -132,3 +132,22 @@ def test_plan_end_to_end(fly):
     near = [e for e in res.experiences if e.source == "周边数据"]
     assert near[0].ring == "步行圈" and near[0].bearing is not None
     assert any("泳池" in c.question for c in res.to_confirm)
+
+
+def test_live_field_shapes():
+    """线上 flyai 字段与样例不同：shid/nearbyPoi、title/sellPoint/picUrl、'¥987起/晚'。"""
+    assert parse_price("¥987起/晚") == 987
+    assert parse_price("￥999起/3晚") == 999
+    h = FlyaiClient._hotel({"shid": "75166085", "name": "上海漕河泾万丽酒店", "price": "¥987起/晚",
+                            "nearbyPoi": "近歇浦路(地铁站)"}, brand_default="万豪")
+    assert (h.id, h.price, h.interests_poi) == ("75166085", 987, "近歇浦路(地铁站)")
+
+    fly = FlyaiClient(mode="fixture")
+    fly.run = lambda *a, **k: {"data": {"itemList": [
+        {"title": "上海漕河泾万丽酒店豪华房1晚+2大1小自助早餐", "price": "￥899起/1晚",
+         "sellPoint": "超大落地窗泳池", "benefit": None, "picUrl": "p", "detailUrl": "u"},
+        {"title": "万豪集团450+店3晚 可拆分多档通兑", "price": "￥999起/3晚", "sellPoint": None},
+    ]}}
+    pkgs = fly.search_packages("上海")
+    assert pkgs[0].selling_point == "超大落地窗泳池" and pkgs[0].pic == "p"
+    assert [p.name for p in packages_of(h, pkgs)] == [pkgs[0].name]
