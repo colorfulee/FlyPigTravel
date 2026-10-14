@@ -171,7 +171,7 @@ function render(d) {
       ${safeUrl(h.pic) ? `<img src="${esc(h.pic)}" alt="">` : "<img alt=''>"}
       <div>
         <div style="font-weight:700">${esc(h.name)}</div>
-        <div class="muted">${esc(h.star)} · ${h.score ?? "-"} 分 · ${esc(h.interests_poi)}</div>
+        <div class="muted">${[esc(h.star), h.score != null ? `${h.score} 分` : "", esc(h.interests_poi)].filter(Boolean).join(" · ")}</div>
         <div class="price">${esc(h.price_text || "价格见飞猪")}<span class="muted"> / 晚</span></div>
         ${safeUrl(h.url) ? `<a class="book" href="${esc(h.url)}" target="_blank" rel="noopener">去飞猪预订 →</a>` : ""}
       </div>
