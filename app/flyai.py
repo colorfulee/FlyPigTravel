@@ -15,6 +15,9 @@ class FlyaiError(RuntimeError):
     pass
 
 
+TRANSIENT = re.compile(r"HTTP 5\d\d|Service Unavailable|DNS|ECONNRESET|ETIMEDOUT")
+
+
 def parse_price(text: str | None) -> int | None:
     """'¥618' -> 618；脱敏价格（'¥2xx'）或空值返回 None。"""
     if not text:
@@ -44,7 +47,7 @@ class FlyaiClient:
             args += [f"--{k.replace('_', '-')}", str(v)]
 
         if self.mode == "fixture":
-            return self._fixture(command)
+            return self._fixture(command, options)
 
         key = hashlib.sha1(json.dumps(args, ensure_ascii=False).encode()).hexdigest()[:16]
         cache = self.cache_dir / f"{command}-{key}.json"
@@ -54,14 +57,17 @@ class FlyaiClient:
         env = {**os.environ}
         if settings.flyai_api_key:
             env["FLYAI_API_KEY"] = settings.flyai_api_key
-        try:
-            proc = subprocess.run(
-                [settings.flyai_bin, *args], capture_output=True, text=True, timeout=60, env=env
-            )
-        except FileNotFoundError as e:
-            raise FlyaiError("未找到 flyai 命令，请先 npm i -g @fly-ai/flyai-cli") from e
-        except subprocess.TimeoutExpired as e:
-            raise FlyaiError(f"flyai {command} 超时") from e
+        for attempt in range(2):  # 线上偶发 503 / DNS 失败，重试一次
+            try:
+                proc = subprocess.run(
+                    [settings.flyai_bin, *args], capture_output=True, text=True, timeout=60, env=env
+                )
+            except FileNotFoundError as e:
+                raise FlyaiError("未找到 flyai 命令，请先 npm i -g @fly-ai/flyai-cli") from e
+            except subprocess.TimeoutExpired as e:
+                raise FlyaiError(f"flyai {command} 超时") from e
+            if proc.returncode == 0 or not TRANSIENT.search(proc.stderr):
+                break
         if proc.returncode != 0:
             raise FlyaiError(f"flyai {command} 失败：{proc.stderr.strip()[:300]}")
         try:
@@ -75,11 +81,15 @@ class FlyaiClient:
         cache.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return data
 
-    def _fixture(self, command: str) -> dict:
+    def _fixture(self, command: str, options: dict) -> dict:
+        empty = {"data": {"itemList": []}, "status": 0}
         path = settings.fixture_dir / f"{command}.json"
         if not path.exists():
-            return {"data": {"itemList": []}, "status": 0}
-        return json.loads(path.read_text(encoding="utf-8"))
+            return empty
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if "variants" in data:  # 按某个参数分组的样例，如 search-poi 按 category
+            return data["variants"].get(str(options.get(data["variant_by"])), empty)
+        return data
 
     @staticmethod
     def items(data: dict) -> list[dict]:

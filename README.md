@@ -40,6 +40,7 @@ cp .env.example .env
 ```
 
 离线演示：`FLYAI_MODE=fixture` 使用 `fixtures/` 下的样例数据（页面会明确标出“样例数据”），百炼仍需真实 Key。
+样例数据是飞猪线上真实返回的快照，用 `python scripts/refresh_fixtures.py 上海 2026-10-31 2026-11-01 上海漕河泾万丽酒店` 重新抓取。
 
 数据实测：`bash scripts/probe_flyai.sh 上海 2026-10-31 2026-11-01`
 

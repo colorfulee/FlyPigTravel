@@ -63,6 +63,8 @@ def parse_intent(llm: LLM, text: str, today: dt.date) -> Intent:
     persona = raw.get("persona") if raw.get("persona") in PERSONAS else "情侣"
     budget = raw.get("budget")
     min_star = raw.get("min_star")
+    if not re.search(r"[五四5４]星|豪华|高档", text):  # 模型常凭酒店品牌脑补星级，只认用户原话
+        min_star = None
     return Intent(
         city=(raw.get("city") or "上海").strip(),
         check_in=ci.isoformat(), check_out=co.isoformat(), persona=persona,
@@ -259,7 +261,10 @@ JOURNEY_SYSTEM = """你是高品质酒店的私人旅程设计师。根据住客
 2. day=0 为入住日（{check_in} 后），day=1 为次日（{check_out} 前退房；退房后可安排 1 项“车程圈/步行圈”体验作为收尾，day=1 时间可晚于退房）；
 3. 车程圈体验要留出路上时间；
 4. 生成 3-6 条主动提醒（不是行程复述，而是“该做什么了”：提前预约、错峰、天气/穿着、退房前别忘了），
-   offset_minutes 为相对入住日 00:00 的分钟数（入住前 2 天 20:00 = -2*1440+1200）。
+   offset_minutes 为相对入住日 00:00 的分钟数（入住前 2 天 20:00 = -2*1440+1200）；
+5. note 与提醒只能引用清单里给出的信息（标题、说明、依据、车程分钟数）和入住/退房时间。
+   不得写出清单中没有的数字、价格、营业/开放时间、名额、优惠券、购票方式；没有依据的事项写成建议，如“到店向前台确认…”；
+   每条提醒必须对应一个 experience_id 并在 message 中写出该体验的标题（退房等通用提醒由系统生成，无需输出）。
 输出 JSON：{{"headline": 一句话概括这段旅程(≤20字),
  "timeline": [{{"day":0,"time":"HH:MM","experience_id":"..","note":"为什么这样安排(≤25字)"}}],
  "reminders": [{{"when":"入住前2天 20:00","offset_minutes":-1680,"message":"..","experience_id":"..或null"}}]}}"""
@@ -280,6 +285,57 @@ def checkout_time(pkgs: list[Package]) -> str:
     return "14:00" if re.search(r"延迟退房|延时退房|延退", text) else DEFAULT_CHECK_OUT
 
 
+# 模型最爱编的“事实”：没有原文依据就出现这些词，视为编造
+CLAIM_WORDS = ("优惠", "券", "限", "免费", "赠", "折", "开放", "营业", "闭馆", "售罄",
+               "扫码", "购票", "需预约", "须预约", "合作", "领取", "凭", "优先", "手续", "班次",
+               "寄存", "地图", "活跃", "实名")
+CLAIM_RE = re.compile(r"[需须要]\S{0,3}预约")
+BASIS_RE = re.compile(r"[（(]依据[:：][^）)]*[）)]")
+ID_RE = re.compile(r"[（(]?(?:experience_id[:：]?\s*)?(?<![A-Za-z0-9])[hpv]\d+(?![0-9])[)）]?")
+
+
+def _facts(exp: Experience | None, check_out: str) -> str:
+    base = f"{CHECK_IN} {check_out}"
+    if not exp:
+        return base
+    extra = f" {exp.minutes}" if exp.minutes is not None else ""
+    return f"{base} {exp.title} {exp.detail} {exp.evidence}{extra}"
+
+
+def clean(text: str) -> str:
+    """去掉模型夹带的内部 id 与“（依据：…）”注释。"""
+    return ID_RE.sub("", BASIS_RE.sub("", text)).strip()
+
+
+def is_grounded(text: str, facts: str) -> bool:
+    """文本中的数字和事实性措辞都必须能在原始数据里找到。"""
+    if any(n not in facts for n in re.findall(r"\d+", text)):
+        return False
+    if CLAIM_RE.search(text) and not CLAIM_RE.search(facts):
+        return False
+    return not any(w in text and w not in facts for w in CLAIM_WORDS)
+
+
+def data_reminders(items: list[TimelineItem], exps: dict[str, Experience],
+                   check_out: str) -> list[Reminder]:
+    """由数据直接生成的提醒，用于补足被剔除的模型提醒。"""
+    out = []
+    for it in items:
+        e = exps[it.experience_id]
+        t = it.day * 1440 + (_hm(it.time) or 0)
+        if e.source == "套餐权益":
+            out.append(Reminder(when=f"入住日 {CHECK_IN}", offset_minutes=_hm(CHECK_IN) or 0,
+                                message=f"到店时向前台确认「{e.title}」的使用时间与方式", experience_id=e.id))
+        elif e.ring == "车程圈" and e.minutes:
+            out.append(Reminder(when=f"{'入住日' if it.day == 0 else '次日'} {it.time} 前",
+                                offset_minutes=t - e.minutes - 15,
+                                message=f"前往「{e.title}」车程约 {e.minutes} 分钟，记得提前出发", experience_id=e.id))
+    co = _hm(check_out) or 12 * 60
+    out.append(Reminder(when=f"次日 {check_out} 前", offset_minutes=1440 + co - 60,
+                        message=f"退房时间 {check_out}，退房前检查随身物品"))
+    return out
+
+
 def validate_journey(raw: dict, persona: str, exps: dict[str, Experience],
                      check_out: str) -> Journey | None:
     ci, co = _hm(CHECK_IN), _hm(check_out)
@@ -295,8 +351,12 @@ def validate_journey(raw: dict, persona: str, exps: dict[str, Experience],
         if day == 1 and ((exps[eid].ring == "酒店内" and t >= co) or t > 18 * 60):
             continue
         used.add(eid)
+        note = clean(str(it.get("note") or ""))[:40]
+        walk_claim = "步行" in note and exps[eid].ring not in ("酒店内", "步行圈")
+        if walk_claim or not is_grounded(note, _facts(exps[eid], check_out)):
+            note = ""
         items.append(TimelineItem(day=day, time=f"{t // 60:02d}:{t % 60:02d}", experience_id=eid,
-                                  title=exps[eid].title, note=str(it.get("note") or "")[:40]))
+                                  title=exps[eid].title, note=note))
     if len(items) < 2:
         return None
     items.sort(key=lambda x: (x.day, x.time))
@@ -307,13 +367,18 @@ def validate_journey(raw: dict, persona: str, exps: dict[str, Experience],
             off = int(r.get("offset_minutes"))
         except (TypeError, ValueError):
             continue
+        # 模型提醒必须落在某个体验上并点名它；通用提醒（退房等）只由 data_reminders 生成
         eid = r.get("experience_id")
-        if eid is not None and eid not in exps:
-            eid = None
-        if not r.get("message") or off > 2 * 1440:
+        msg = clean(str(r.get("message") or ""))[:80]
+        if eid not in exps or exps[eid].title[:4] not in msg or off > 2 * 1440:
+            continue
+        if not is_grounded(msg, _facts(exps[eid], check_out)):
             continue
         reminders.append(Reminder(when=str(r.get("when") or ""), offset_minutes=off,
-                                  message=str(r["message"])[:80], experience_id=eid))
+                                  message=msg, experience_id=eid))
+    covered = {r.experience_id for r in reminders}  # 模型已提醒过的体验不再重复
+    reminders += [r for r in data_reminders(items, exps, check_out)
+                  if r.experience_id is None or r.experience_id not in covered]
     reminders.sort(key=lambda r: r.offset_minutes)
     return Journey(persona=persona, headline=str(raw.get("headline") or f"{persona}的一晚")[:24],
                    timeline=items, reminders=reminders[:6])
@@ -339,8 +404,8 @@ def fallback_journey(persona: str, exps: list[Experience], check_out: str) -> Jo
 def build_journey(llm: LLM, intent: Intent, persona: str, hotel: Hotel,
                   exps: list[Experience], check_out: str) -> Journey:
     listing = [
-        {"experience_id": e.id, "title": e.title, "detail": e.detail, "source": e.source,
-         "ring": e.ring, "minutes": e.minutes, "personas": e.personas}
+        {"experience_id": e.id, "title": e.title, "detail": e.detail, "evidence": e.evidence,
+         "source": e.source, "ring": e.ring, "minutes": e.minutes, "personas": e.personas}
         for e in exps
     ]
     user = (f"酒店：{hotel.name}（{hotel.star}）\n入住 {intent.check_in} {CHECK_IN}，退房 {intent.check_out} {check_out}\n"
@@ -386,6 +451,8 @@ def plan(llm: LLM, fly: FlyaiClient, geo: Geocoder, text: str,
         raise FlyaiError(f"没有找到 {intent.city} {intent.check_in} 的可订酒店：" + "；".join(warnings))
     ranked = rank_hotels(hotels, packages, intent)
     hotel = ranked[0]
+    if intent.hotel_hint and intent.hotel_hint not in hotel.name:
+        warnings.append(f"没有查到「{intent.hotel_hint}」在这两天的可订房，已为你推荐相近的酒店")
     pkgs = packages_of(hotel, packages)
     if not pkgs:  # 城市级套餐多为集团通兑，再按选中酒店精确查一次
         try:

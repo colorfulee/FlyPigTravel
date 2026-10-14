@@ -1,5 +1,6 @@
 """验证 .env 中的百炼与飞猪 Key 是否可用：python scripts/check_keys.py"""
 import os
+import re
 import subprocess
 import sys
 
@@ -25,7 +26,7 @@ r = subprocess.run([settings.flyai_bin, "search-hotel", "--dest-name", "上海",
                    capture_output=True, text=True, env=env, timeout=60)
 out = (r.stdout or r.stderr).strip()
 print("  ", out[:300])
-if r.returncode != 0 or "xx" in out:
+if r.returncode != 0 or re.search(r'"price":\s*"[^"]*x', out):
     ok = False
     print("  失败或价格脱敏（出现 xx 说明 FLYAI_API_KEY 未生效）")
 
