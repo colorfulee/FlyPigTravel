@@ -5,7 +5,7 @@ import pytest
 from app.flyai import FlyaiClient, parse_price
 from app.geo import Geocoder, haversine_m, ring_for
 from app.pipeline import (
-    checkout_time, fallback_journey, mine_hotel_experiences, next_saturday, parse_intent, plan,
+    checkout_time, fallback_journey, mine_hotel_experiences, next_saturday, packages_of, parse_intent, plan,
     rank_hotels, validate_journey,
 )
 from app.schemas import Experience, Hotel, Intent, Package
@@ -56,6 +56,7 @@ def fly():
 
 def test_parse_price():
     assert parse_price("¥618") == 618
+    assert parse_price("¥721起/晚") == 721
     assert parse_price("¥2xx") is None
     assert parse_price("") is None
 
@@ -132,3 +133,24 @@ def test_plan_end_to_end(fly):
     near = [e for e in res.experiences if e.source == "周边数据"]
     assert near[0].ring == "步行圈" and near[0].bearing is not None
     assert any("泳池" in c.question for c in res.to_confirm)
+
+
+def test_hotel_parses_live_marriott_fields():
+    h = FlyaiClient._hotel({"name": "上海明捷万丽酒店", "shid": "54804118", "rate": None,
+                            "nearbyPoi": "近南京路步行街", "star": "豪华型", "price": "¥721起/晚"})
+    assert (h.id, h.interests_poi, h.price, h.score) == ("54804118", "近南京路步行街", 721, None)
+
+
+def test_rank_respects_min_star():
+    cheap = Hotel(id="1", name="高档酒店", star="高档型", price=306)
+    lux = Hotel(id="2", name="豪华酒店", star="豪华型", price=1200)
+    five = Intent(city="上海", check_in="2026-10-31", check_out="2026-11-01", persona="亲子",
+                  budget=2000, min_star=5)
+    assert rank_hotels([cheap, lux], [], five)[0].name == "豪华酒店"
+
+
+def test_live_package_matches_hotel_by_title():
+    pkg = Package(name="上海漕河泾万丽酒店豪华房1晚+2大1小自助早餐", hotel_name="")
+    group = Package(name="万豪集团450+店3晚 可拆分多档通兑", hotel_name="")
+    hotel = Hotel(id="1", name="上海漕河泾万丽酒店")
+    assert packages_of(hotel, [pkg, group]) == [pkg]

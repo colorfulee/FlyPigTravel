@@ -25,7 +25,7 @@ def test_chat_json_uses_bailian_compatible_api():
 
 def test_vision_json_parses_fenced_output():
     cap = []
-    b = Bailian(api_key="k", vl_model="qwen-vl-max", client=_client(cap, '```json\n{"items": []}\n```'))
+    b = Bailian(api_key="k", vl_model="qwen3-vl-plus", client=_client(cap, '```json\n{"items": []}\n```'))
     assert b.vision_json("https://img", "看图") == {"items": []}
     assert cap[0]["messages"][0]["content"][0]["image_url"]["url"] == "https://img"
 

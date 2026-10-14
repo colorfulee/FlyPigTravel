@@ -40,13 +40,13 @@
 
 百炼位于**运行时链路**，是作品的核心：所有理解、识别和生成都由百炼完成。
 
-- 百炼能力 / 模型：通义千问 `qwen-plus`（文本理解与生成），通义千问 VL `qwen-vl-max`（图像理解）
+- 百炼能力 / 模型：通义千问 `qwen-plus`（文本理解与生成），通义千问 VL `qwen3-vl-plus`（图像理解）
 - 调用方式：百炼 API（DashScope OpenAI 兼容接口 `/compatible-mode/v1/chat/completions`）
 - 使用环节与输入输出：
   1. 需求解析：一句话需求 → 城市 / 日期 / 人群 / 预算 / 想要的体验（JSON）
-  2. 种草截图识别（qwen-vl-max）：截图 → 酒店名 / 城市 / 亮点
+  2. 种草截图识别（qwen3-vl-plus）：截图 → 酒店名 / 城市 / 亮点
   3. 体验挖掘：套餐名称 + 卖点 + 评价原文 → 体验清单及逐字证据（JSON）
-  4. 酒店图片理解（qwen-vl-max）：酒店 / 套餐主图 → 可见设施（泳池、景观、下午茶等）
+  4. 酒店图片理解（qwen3-vl-plus）：酒店 / 套餐主图 → 可见设施（泳池、景观、下午茶等）
   5. 旅程编排：体验清单 + 空间分层 + 入住/退房时间窗 + 人群 → 时间线与主动提醒（JSON），再由代码校验
 - Skill 名称（如有）：飞猪 flyai Skill（`@fly-ai/flyai-cli`：search-hotel / search-marriott-hotel / search-marriott-package / search-poi）
 - 其他工具 / 技术栈：Python FastAPI、原生 H5 前端、高德地理编码（可选）、pytest

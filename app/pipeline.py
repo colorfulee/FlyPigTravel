@@ -43,7 +43,7 @@ DEFAULT_CHECK_OUT = "12:00"
 # ---------------------------------------------------------------- 1. 理解需求
 INTENT_SYSTEM = """你是酒店微度假规划助手的需求解析器。把用户的一句话需求解析为 JSON：
 {"city": 城市名, "check_in": "YYYY-MM-DD", "check_out": "YYYY-MM-DD",
- "persona": "亲子|情侣|独处|闺蜜|带父母" 之一, "budget": 每晚预算整数或 null,
+ "persona": "亲子|情侣|独处|闺蜜|带父母" 之一, "budget": 每晚预算整数或 null, "min_star": 用户明确说出的最低星级（五星/豪华=5，四星/高档=4），未明说则 null,
  "wants": [想要的体验关键词], "hotel_hint": 用户点名的酒店名或 null}
 规则：日期未说明时填 null；“这周末”指最近的周六入住、周日退房；人群无法判断时填“情侣”。只输出 JSON。"""
 
@@ -62,10 +62,12 @@ def parse_intent(llm: LLM, text: str, today: dt.date) -> Intent:
         co = ci + dt.timedelta(days=1)
     persona = raw.get("persona") if raw.get("persona") in PERSONAS else "情侣"
     budget = raw.get("budget")
+    min_star = raw.get("min_star")
     return Intent(
         city=(raw.get("city") or "上海").strip(),
         check_in=ci.isoformat(), check_out=co.isoformat(), persona=persona,
         budget=int(budget) if isinstance(budget, (int, float)) and budget > 0 else None,
+        min_star=int(min_star) if isinstance(min_star, (int, float)) and 1 <= min_star <= 5 else None,
         wants=[str(w) for w in (raw.get("wants") or [])][:6],
         hotel_hint=raw.get("hotel_hint") or None,
     )
@@ -82,9 +84,17 @@ def _date(v) -> dt.date | None:
 def recall(fly: FlyaiClient, intent: Intent, warnings: list[str]) -> tuple[list[Hotel], list[Package]]:
     hotels: dict[str, Hotel] = {}
     max_price = int(intent.budget * 1.3) if intent.budget else None
-    for fn in (fly.search_hotels, fly.search_marriott_hotels):
+    stars = "5" if intent.min_star == 5 else "4,5"
+    searches = (
+        lambda: fly.search_hotels(intent.city, intent.check_in, intent.check_out, max_price=max_price, stars=stars),
+        lambda: fly.search_marriott_hotels(intent.city, intent.check_in, intent.check_out, max_price=max_price),
+    )
+    if intent.hotel_hint:  # 点名的酒店不一定在前几条结果里，单独按名称搜
+        searches = (lambda: fly.search_hotels(intent.city, intent.check_in, intent.check_out,
+                                              keywords=intent.hotel_hint, stars=None),) + searches
+    for search in searches:
         try:
-            for h in fn(intent.city, intent.check_in, intent.check_out, max_price=max_price):
+            for h in search():
                 hotels.setdefault(h.name, h)
         except FlyaiError as e:
             warnings.append(str(e))
@@ -97,7 +107,20 @@ def recall(fly: FlyaiClient, intent: Intent, warnings: list[str]) -> tuple[list[
 
 
 def packages_of(hotel: Hotel, packages: list[Package]) -> list[Package]:
-    return [p for p in packages if p.hotel_name and (p.hotel_name in hotel.name or hotel.name in p.hotel_name)]
+    def match(p: Package) -> bool:
+        if p.hotel_name:
+            return p.hotel_name in hotel.name or hotel.name in p.hotel_name
+        return hotel.name in p.name  # 线上数据无 hotelName，酒店名写在套餐标题里
+
+    return [p for p in packages if match(p)]
+
+
+# 飞猪 star 字段是档次文案而非数字
+STAR_LEVEL = {"五星级": 5, "豪华型": 5, "四星级": 4, "高档型": 4, "三星级": 3, "舒适型": 3}
+
+
+def star_level(h: Hotel) -> int | None:
+    return STAR_LEVEL.get(h.star)
 
 
 def rank_hotels(hotels: list[Hotel], packages: list[Package], intent: Intent) -> list[Hotel]:
@@ -105,6 +128,10 @@ def rank_hotels(hotels: list[Hotel], packages: list[Package], intent: Intent) ->
 
     def score(h: Hotel) -> float:
         s = (h.score or 4.5) * 10
+        level = star_level(h)
+        s += 8 if level == 5 else 0  # 高品质 staycation：同等条件优先豪华/五星
+        if intent.min_star and level is not None and level < intent.min_star:
+            s -= 40
         pk = packages_of(h, packages)
         s += min(len(pk), 3) * 5  # 有套餐 = 有可挖掘的体验
         text = " ".join([h.name, h.review, h.interests_poi] + [p.name + p.selling_point for p in pk])
@@ -360,6 +387,11 @@ def plan(llm: LLM, fly: FlyaiClient, geo: Geocoder, text: str,
     ranked = rank_hotels(hotels, packages, intent)
     hotel = ranked[0]
     pkgs = packages_of(hotel, packages)
+    if not pkgs:  # 城市级套餐多为集团通兑，再按选中酒店精确查一次
+        try:
+            pkgs = packages_of(hotel, fly.search_packages(intent.city, hotel_name=hotel.name))
+        except FlyaiError as e:
+            warnings.append(str(e))
 
     contrast = CONTRAST[intent.persona]
     personas = [intent.persona, contrast]

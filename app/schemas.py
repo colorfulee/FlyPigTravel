@@ -16,6 +16,7 @@ class Intent(BaseModel):
     check_out: str
     persona: Persona = "情侣"
     budget: int | None = None  # 每晚预算，元
+    min_star: int | None = None  # 用户要求的最低星级，如“五星”=5
     wants: list[str] = Field(default_factory=list)  # 如：泳池、温泉、下午茶
     hotel_hint: str | None = None  # 用户指定或截图识别出的酒店名
 

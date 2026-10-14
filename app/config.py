@@ -15,7 +15,7 @@ class Settings:
         "BAILIAN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
     text_model: str = os.getenv("BAILIAN_TEXT_MODEL", "qwen-plus")
-    vl_model: str = os.getenv("BAILIAN_VL_MODEL", "qwen-vl-max")
+    vl_model: str = os.getenv("BAILIAN_VL_MODEL", "qwen3-vl-plus")
 
     flyai_api_key: str = os.getenv("FLYAI_API_KEY", "")
     flyai_mode: str = os.getenv("FLYAI_MODE", "live")

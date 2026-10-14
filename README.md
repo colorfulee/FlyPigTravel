@@ -10,11 +10,11 @@
 
 ```
 一句话需求 / 种草截图
-  └─ 百炼 qwen-plus：解析城市、日期、人群、预算、想要的体验      （截图走 qwen-vl-max）
+  └─ 百炼 qwen-plus：解析城市、日期、人群、预算、想要的体验      （截图走 qwen3-vl-plus）
        └─ 飞猪 flyai：search-hotel + search-marriott-hotel + search-marriott-package
             └─ 代码排序：评分、预算、人群关键词、是否有套餐
                  ├─ 百炼 qwen-plus：从套餐和评价原文提取体验 → 代码校验“证据必须逐字出现在原文”
-                 ├─ 百炼 qwen-vl-max：从酒店/套餐图片识别设施 → 自动进入“待确认”
+                 ├─ 百炼 qwen3-vl-plus：从酒店/套餐图片识别设施 → 自动进入“待确认”
                  └─ 飞猪 search-poi + 坐标距离：步行圈 / 车程圈
                       └─ 百炼 qwen-plus：为两种人群编排旅程与主动提醒
                            → 代码校验 experience_id、入住/退房时间窗；不合格则确定性兜底
