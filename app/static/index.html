@@ -30,6 +30,9 @@
   .hotel { display: flex; gap: 12px; }
   .hotel img { width: 112px; height: 84px; object-fit: cover; border-radius: 10px; background: var(--line); flex-shrink: 0; }
   .price { color: var(--accent); font-weight: 700; }
+  .why { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .why span { font-size: 12px; background: var(--accent-soft); color: #9a3d00; border-radius: 6px; padding: 2px 8px; }
+  .alt { padding: 6px 0; border-top: 1px dashed var(--line); font-size: 13px; }
   a.book { display: inline-block; margin-top: 6px; color: var(--accent); font-weight: 600; text-decoration: none; }
   .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
   .tab { flex: 1; text-align: center; padding: 8px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; background: #fff; }
@@ -176,9 +179,11 @@ function render(d) {
         ${safeUrl(h.url) ? `<a class="book" href="${esc(h.url)}" target="_blank" rel="noopener">去飞猪预订 →</a>` : ""}
       </div>
     </div>
+    ${h.reasons?.length ? `<div class="why">${h.reasons.map((r) => `<span>${esc(r)}</span>`).join("")}</div>` : ""}
     ${d.packages.map((p) => `<div class="exp"><span class="tag s-套餐权益" style="margin:0 6px 0 0">套餐</span>${esc(p.name)} <span class="price">${esc(p.price_text)}</span>
       ${safeUrl(p.url) ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener">预订</a>` : ""}</div>`).join("")}
-    ${d.alternatives.length ? `<p class="muted">备选：${d.alternatives.map((a) => esc(a.name) + " " + esc(a.price_text)).join("；")}</p>` : ""}`;
+    ${d.alternatives.length ? `<p class="muted" style="margin-bottom:0">备选</p>${d.alternatives.map((a) => `<div class="alt">${esc(a.name)} <span class="price">${esc(a.price_text)}</span>
+      ${a.reasons?.length ? `<div class="muted">${a.reasons.slice(0, 2).map(esc).join(" · ")}</div>` : ""}</div>`).join("")}` : ""}`;
 
   $("tabs").innerHTML = d.journeys.map((j, i) => `<div class="tab ${i ? "" : "on"}" data-i="${i}">${esc(j.persona)}版</div>`).join("");
   $("tabs").onclick = (ev) => { const i = ev.target.dataset.i; if (i === undefined) return;

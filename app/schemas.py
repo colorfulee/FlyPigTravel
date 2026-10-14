@@ -36,6 +36,9 @@ class Hotel(BaseModel):
     pic: str = ""
     url: str = ""
     brand: str = ""
+    decorated: int | None = None  # 装修年份
+    recall_tags: list[str] = Field(default_factory=list)  # 哪些需求关键词把它召回来的
+    reasons: list[str] = Field(default_factory=list)  # 推荐理由，由排序代码生成
 
 
 class Package(BaseModel):

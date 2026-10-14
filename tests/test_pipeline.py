@@ -195,3 +195,60 @@ def test_min_star_only_from_user_words():
             return {"city": "上海", "persona": "亲子", "min_star": 5, "hotel_hint": "上海漕河泾万丽酒店"}
     assert parse_intent(StarLLM(), "下周六带孩子住漕河泾万丽", TODAY).min_star is None
     assert parse_intent(StarLLM(), "下周六带孩子住五星酒店", TODAY).min_star == 5
+
+
+def _intent(**kw):
+    return Intent(city="上海", check_in="2026-10-31", check_out="2026-11-01", **kw)
+
+
+def test_rank_prefers_hotel_near_wanted_places():
+    from app.schemas import Poi
+    pois = [Poi(id=str(i), name=n, lat=lat, lng=lng) for i, (n, lat, lng) in enumerate(
+        [("外白渡桥", 31.2453, 121.4906), ("十六铺码头", 31.2283, 121.4995), ("外滩", 31.2397, 121.4908)])]
+    airport = Hotel(id="1", name="虹桥机场豪华酒店", star="豪华型", price=540, lat=31.19, lng=121.31)
+    bund = Hotel(id="2", name="外滩豪华酒店", star="豪华型", price=1200, lat=31.2400, lng=121.4890)
+    ranked = rank_hotels([airport, bund], [], _intent(persona="情侣", budget=1500), pois)
+    assert ranked[0].name == "外滩豪华酒店"
+    assert any("步行约" in r for r in ranked[0].reasons)
+    assert any("车程约" in r for r in ranked[1].reasons)
+
+
+def test_rank_rewards_keyword_recall_and_quality_signals():
+    plain = Hotel(id="1", name="普通豪华酒店", star="豪华型", price=900)
+    river = Hotel(id="2", name="上海浦东滨江喜来登酒店", star="豪华型", price=900, recall_tags=["江景"])
+    jw = Hotel(id="3", name="上海东方美谷 JW 万豪酒店", star="豪华型", price=900, decorated=2025)
+    ranked = rank_hotels([plain, river, jw], [], _intent(persona="情侣", budget=1500), today=TODAY)
+    assert ranked[-1].name == "普通豪华酒店"
+    assert "符合你的需求：江景" in river.reasons
+    assert jw.reasons == ["奢华酒店品牌", "2025 年装修"]
+
+
+def test_recall_keywords_from_wants_or_persona():
+    from app.pipeline import recall_keywords
+    assert recall_keywords(_intent(persona="情侣", wants=["江景", "下午茶", "夜景"])) == ["江景", "下午茶"]
+    assert recall_keywords(_intent(persona="带父母")) == ["园林"]
+
+
+def test_far_hotel_loses_despite_upgrades():
+    from app.schemas import Poi
+    museum = [Poi(id="1", name="上海自然博物馆", lat=31.2370, lng=121.4560)]
+    far = Hotel(id="1", name="远郊豪华酒店", star="豪华型", price=602, decorated=2025, lat=31.19, lng=121.30)
+    near = Hotel(id="2", name="市区高档酒店", star="高档型", price=526, lat=31.2300, lng=121.4800)
+    assert rank_hotels([far, near], [], _intent(persona="独处", budget=1000), museum, TODAY)[0].name == "市区高档酒店"
+
+
+def test_fallback_without_in_hotel_experiences():
+    exps = [Experience(id=f"p{i}", title=f"周边{i}", source="周边数据", ring="车程圈", personas=["亲子"])
+            for i in range(3)]
+    j = fallback_journey("亲子", exps, "12:00")
+    assert [(i.day, i.time) for i in j.timeline] == [(0, "15:30"), (0, "19:00"), (1, "13:00")]
+
+
+def test_nearby_keeps_slots_for_main_persona():
+    from app.pipeline import nearby_experiences
+    from app.schemas import Poi
+    hotel = Hotel(id="h", name="酒店", lat=31.24, lng=121.49)
+    pois = [(Poi(id=f"c{i}", name=f"情侣点{i}", lat=31.24 + i * 0.001, lng=121.49), "城市观光") for i in range(8)]
+    pois += [(Poi(id=f"k{i}", name=f"亲子点{i}", lat=31.30 + i * 0.01, lng=121.49), "海洋馆") for i in range(3)]
+    titles = [e.title for e in nearby_experiences(hotel, ["亲子", "情侣"], pois)]
+    assert sum(t.startswith("亲子点") for t in titles) == 3 and len(titles) == 8

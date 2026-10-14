@@ -26,6 +26,11 @@ def parse_price(text: str | None) -> int | None:
     return int(float(m.group(1))) if m else None
 
 
+def _year(v) -> int | None:
+    m = re.match(r"(19|20)\d\d", str(v or ""))
+    return int(m.group()) if m else None
+
+
 def _float(v) -> float | None:
     try:
         return float(v)
@@ -88,7 +93,7 @@ class FlyaiClient:
             return empty
         data = json.loads(path.read_text(encoding="utf-8"))
         if "variants" in data:  # 按某个参数分组的样例，如 search-poi 按 category
-            return data["variants"].get(str(options.get(data["variant_by"])), empty)
+            return data["variants"].get(str(options.get(data["variant_by"]) or ""), empty)
         return data
 
     @staticmethod
@@ -151,4 +156,5 @@ class FlyaiClient:
             address=i.get("address") or "", lat=_float(i.get("latitude")),
             lng=_float(i.get("longitude")), pic=i.get("mainPic") or "",
             url=i.get("detailUrl") or "", brand=i.get("brandName") or brand_default,
+            decorated=_year(i.get("decorationTime")),
         )

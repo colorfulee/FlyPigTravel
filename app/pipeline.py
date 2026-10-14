@@ -83,21 +83,36 @@ def _date(v) -> dt.date | None:
 
 
 # ---------------------------------------------------------------- 2. 召回与排序
+# 没说想要什么时，用人群词去飞猪检索
+PERSONA_RECALL = {"亲子": "亲子", "情侣": "景观", "独处": "安静", "闺蜜": "网红", "带父母": "园林"}
+
+
+def recall_keywords(intent: Intent) -> list[str]:
+    """用户想要的体验直接作为飞猪检索词：“江景”能召回滨江酒店，通用列表里往往没有。"""
+    words = [w for w in intent.wants if 1 < len(w) <= 6][:2]
+    return words or [PERSONA_RECALL[intent.persona]]
+
+
 def recall(fly: FlyaiClient, intent: Intent, warnings: list[str]) -> tuple[list[Hotel], list[Package]]:
     hotels: dict[str, Hotel] = {}
     max_price = int(intent.budget * 1.3) if intent.budget else None
     stars = "5" if intent.min_star == 5 else "4,5"
-    searches = (
-        lambda: fly.search_hotels(intent.city, intent.check_in, intent.check_out, max_price=max_price, stars=stars),
-        lambda: fly.search_marriott_hotels(intent.city, intent.check_in, intent.check_out, max_price=max_price),
-    )
+    dates = (intent.city, intent.check_in, intent.check_out)
+    searches = [
+        ("", lambda: fly.search_hotels(*dates, max_price=max_price, stars=stars)),
+        ("", lambda: fly.search_marriott_hotels(*dates, max_price=max_price)),
+    ] + [
+        (w, lambda w=w: fly.search_hotels(*dates, max_price=max_price, keywords=w, stars=stars))
+        for w in recall_keywords(intent)
+    ]
     if intent.hotel_hint:  # 点名的酒店不一定在前几条结果里，单独按名称搜
-        searches = (lambda: fly.search_hotels(intent.city, intent.check_in, intent.check_out,
-                                              keywords=intent.hotel_hint, stars=None),) + searches
-    for search in searches:
+        searches.insert(0, ("", lambda: fly.search_hotels(*dates, keywords=intent.hotel_hint, stars=None)))
+    for tag, search in searches:
         try:
-            for h in search():
-                hotels.setdefault(h.name, h)
+            for found in search():
+                h = hotels.setdefault(found.name, found)
+                if tag and tag not in h.recall_tags:
+                    h.recall_tags.append(tag)
         except FlyaiError as e:
             warnings.append(str(e))
     try:
@@ -119,35 +134,94 @@ def packages_of(hotel: Hotel, packages: list[Package]) -> list[Package]:
 
 # 飞猪 star 字段是档次文案而非数字
 STAR_LEVEL = {"五星级": 5, "豪华型": 5, "四星级": 4, "高档型": 4, "三星级": 3, "舒适型": 3}
+# 线上数据没有评分和评价，品牌是少数可靠的品质信号
+LUXURY_BRANDS = ("JW", "丽思卡尔顿", "瑞吉", "W酒店", "艾迪逊", "宝格丽", "华尔道夫", "四季", "半岛",
+                 "柏悦", "安缦", "文华东方", "康莱德", "瑰丽", "嘉佩乐", "凯宾斯基", "万豪侯爵", "璞丽")
 
 
 def star_level(h: Hotel) -> int | None:
     return STAR_LEVEL.get(h.star)
 
 
-def rank_hotels(hotels: list[Hotel], packages: list[Package], intent: Intent) -> list[Hotel]:
-    words = PERSONA_WORDS.get(intent.persona, []) + intent.wants
+def focus_categories(intent: Intent) -> list[str]:
+    """本次需求真正想去的周边类型：用户点名的在前，其次是人群偏好。"""
+    cats = [c for k, c in WANT_POI.items() if any(k in w for w in intent.wants)]
+    return list(dict.fromkeys(cats + PERSONA_POI[intent.persona][:2]))
 
-    def score(h: Hotel) -> float:
-        s = (h.score or 4.5) * 10
-        level = star_level(h)
-        s += 8 if level == 5 else 0  # 高品质 staycation：同等条件优先豪华/五星
-        if intent.min_star and level is not None and level < intent.min_star:
-            s -= 40
-        pk = packages_of(h, packages)
+
+def location_fit(h: Hotel, pois: list[Poi]) -> tuple[float, str | None]:
+    """酒店到最近 3 个想去地点的平均距离：0km 得 20 分，线性递减；超过 12km 再额外扣分，
+    staycation 每次出门都要 40 分钟以上就失去了意义。"""
+    if h.lat is None or h.lng is None:
+        return 0.0, None
+    near = sorted((haversine_m(h.lat, h.lng, p.lat, p.lng), p.name)
+                  for p in pois if p.lat is not None and p.lng is not None)[:3]
+    if not near:
+        return 0.0, None
+    avg = sum(d for d, _ in near) / len(near)
+    ring, minutes = ring_for(int(avg))
+    how = "步行" if ring == "步行圈" else "车程"
+    km = avg / 1000
+    return max(0.0, 20 - km) - max(0.0, km - 12) * 1.5, f"离「{near[0][1][:12]}」等 {len(near)} 处想去的地方平均{how}约 {minutes} 分钟"
+
+
+def score_hotel(h: Hotel, packages: list[Package], intent: Intent, pois: list[Poi],
+                this_year: int) -> tuple[float, list[str]]:
+    s, why = (h.score or 4.5) * 10, []
+    if h.score:
+        why.append(f"飞猪评分 {h.score}")
+
+    level = star_level(h)
+    s += 8 if level == 5 else 0  # 高品质 staycation：同等条件优先豪华/五星
+    if intent.min_star and level is not None and level < intent.min_star:
+        s -= 40
+    if any(b in h.name for b in LUXURY_BRANDS):
+        s += 6
+        why.append("奢华酒店品牌")
+    if h.decorated and this_year - h.decorated <= 3:
+        s += 4
+        why.append(f"{h.decorated} 年装修")
+
+    loc, loc_why = location_fit(h, pois)
+    s += loc
+    if loc_why:
+        why.append(loc_why)
+
+    pk = packages_of(h, packages)
+    if pk:
         s += min(len(pk), 3) * 5  # 有套餐 = 有可挖掘的体验
-        text = " ".join([h.name, h.review, h.interests_poi] + [p.name + p.selling_point for p in pk])
-        s += sum(4 for w in words if w and w.lower() in text.lower())
-        if intent.hotel_hint and intent.hotel_hint in h.name:
-            s += 1000
-        if intent.budget:
-            if h.price is None:
-                s -= 5
-            elif h.price > intent.budget:
-                s -= 30 * (h.price / intent.budget - 1) + 10
-        return s
+        why.append(f"有 {len(pk)} 个套餐可挖掘体验")
+    words = PERSONA_WORDS.get(intent.persona, []) + intent.wants
+    text = " ".join([h.name, h.review, h.interests_poi] + [p.name + p.selling_point for p in pk]).lower()
+    matched = [w for w in dict.fromkeys(words) if w and w.lower() in text]
+    s += 4 * len(matched) + 6 * len(h.recall_tags)
+    hits = list(dict.fromkeys(h.recall_tags + matched))
+    if hits:
+        why.append("符合你的需求：" + "、".join(hits[:3]))
 
-    return sorted(hotels, key=score, reverse=True)
+    if intent.hotel_hint and intent.hotel_hint in h.name:
+        s += 1000
+        why.insert(0, "你点名的酒店")
+    if intent.budget:
+        if h.price is None:
+            s -= 5
+        elif h.price > intent.budget:
+            s -= 30 * (h.price / intent.budget - 1) + 10
+        else:
+            s += 8 * h.price / intent.budget  # 预算内价格越接近上限，通常房型与服务越好
+    elif h.price:
+        s += min(h.price, 2000) / 250
+    return s, why
+
+
+def rank_hotels(hotels: list[Hotel], packages: list[Package], intent: Intent,
+                pois: list[Poi] | None = None, today: dt.date | None = None) -> list[Hotel]:
+    year = (today or dt.date.today()).year
+    scored = []
+    for h in hotels:
+        s, h.reasons = score_hotel(h, packages, intent, pois or [], year)
+        scored.append((s, h))
+    return [h for _, h in sorted(scored, key=lambda x: x[0], reverse=True)]
 
 
 # ---------------------------------------------------------------- 3. 体验挖掘
@@ -207,13 +281,10 @@ def mine_image_experiences(llm: LLM, images: list[str], known_titles: set[str]) 
     return out[:5]
 
 
-def nearby_experiences(fly: FlyaiClient, geo: Geocoder, hotel: Hotel, intent: Intent,
-                       personas: list[str], warnings: list[str]) -> list[Experience]:
-    cats: list[str] = []
-    for w in intent.wants:
-        for k, c in WANT_POI.items():
-            if k in w and c not in cats:
-                cats.append(c)
+def fetch_pois(fly: FlyaiClient, geo: Geocoder, intent: Intent, personas: list[str],
+               warnings: list[str]) -> list[tuple[Poi, str]]:
+    """查一次周边 POI，排序（选酒店）和体验编排共用，减少 flyai 调用。"""
+    cats = focus_categories(intent)
     for p in personas:
         for c in PERSONA_POI[p][:2]:
             if c not in cats:
@@ -225,16 +296,22 @@ def nearby_experiences(fly: FlyaiClient, geo: Geocoder, hotel: Hotel, intent: In
             pois += [(p, c) for p in fly.search_pois(intent.city, category=c)[:4]]
         except FlyaiError as e:
             warnings.append(str(e))
+    for poi, _ in pois:
+        if (poi.lat is None or poi.lng is None) and geo.enabled:
+            loc = geo.geocode(poi.address or poi.name, intent.city)
+            if loc:
+                poi.lat, poi.lng = loc
+    return pois
 
+
+def nearby_experiences(hotel: Hotel, personas: list[str],
+                       pois: list[tuple[Poi, str]]) -> list[Experience]:
     out, seen = [], set()
     for poi, cat in pois:
         if poi.name in seen:
             continue
         seen.add(poi.name)
         lat, lng = poi.lat, poi.lng
-        if (lat is None or lng is None) and geo.enabled:
-            loc = geo.geocode(poi.address or poi.name, intent.city)
-            lat, lng = loc if loc else (None, None)
         dist = None
         if None not in (lat, lng, hotel.lat, hotel.lng):
             dist = haversine_m(hotel.lat, hotel.lng, lat, lng)
@@ -251,7 +328,10 @@ def nearby_experiences(fly: FlyaiClient, geo: Geocoder, hotel: Hotel, intent: In
     # 空间优先：近的在前，距离未知的放最后；超过 50km 的不算 staycation 周边
     out = [e for e in out if e.distance_m is None or e.distance_m <= 50000]
     out.sort(key=lambda e: (e.distance_m is None, e.distance_m or 0))
-    return out[:8]
+    # 主人群至少保留 5 个名额，避免被对比人群的近处地点挤掉
+    main = [e for e in out if personas[0] in e.personas][:5]
+    rest = [e for e in out if e not in main][:8 - len(main)]
+    return [e for e in out if e in main or e in rest]
 
 
 # ---------------------------------------------------------------- 4. 旅程编排
@@ -392,6 +472,10 @@ def fallback_journey(persona: str, exps: list[Experience], check_out: str) -> Jo
     slots = [(0, "15:00"), (0, "17:30"), (0, "20:00"), (1, "08:00"), (1, "10:00")]
     items = [TimelineItem(day=d, time=t, experience_id=e.id, title=e.title, note="")
              for (d, t), e in zip(slots, inside)]
+    if not inside:  # 没有酒店内体验时，入住日下午和晚上各安排一个周边体验
+        items = [TimelineItem(day=0, time=t, experience_id=e.id, title=e.title, note="")
+                 for t, e in zip(("15:30", "19:00"), outside)]
+        outside = outside[len(items):]
     if outside:
         e = outside[0]
         items.append(TimelineItem(day=1, time=f"{_hm(check_out) // 60 + 1:02d}:00",
@@ -446,10 +530,17 @@ def plan(llm: LLM, fly: FlyaiClient, geo: Geocoder, text: str,
     warnings: list[str] = []
     intent = intent or parse_intent(llm, text, today)
 
-    hotels, packages = recall(fly, intent, warnings)
+    contrast = CONTRAST[intent.persona]
+    personas = [intent.persona, contrast]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_pois = pool.submit(fetch_pois, fly, geo, intent, personas, warnings)
+        hotels, packages = recall(fly, intent, warnings)
+        pois = f_pois.result()
     if not hotels:
         raise FlyaiError(f"没有找到 {intent.city} {intent.check_in} 的可订酒店：" + "；".join(warnings))
-    ranked = rank_hotels(hotels, packages, intent)
+    focus = focus_categories(intent)
+    ranked = rank_hotels(hotels, packages, intent, [p for p, c in pois if c in focus], today)
     hotel = ranked[0]
     if intent.hotel_hint and intent.hotel_hint not in hotel.name:
         warnings.append(f"没有查到「{intent.hotel_hint}」在这两天的可订房，已为你推荐相近的酒店")
@@ -460,12 +551,9 @@ def plan(llm: LLM, fly: FlyaiClient, geo: Geocoder, text: str,
         except FlyaiError as e:
             warnings.append(str(e))
 
-    contrast = CONTRAST[intent.persona]
-    personas = [intent.persona, contrast]
-
     with ThreadPoolExecutor(max_workers=3) as pool:
         f_text = pool.submit(mine_hotel_experiences, llm, hotel, pkgs)
-        f_near = pool.submit(nearby_experiences, fly, geo, hotel, intent, personas, warnings)
+        f_near = pool.submit(nearby_experiences, hotel, personas, pois)
         images = [u for u in [hotel.pic] + [p.pic for p in pkgs] if u][:3]
         text_exps = f_text.result()
         f_img = pool.submit(mine_image_experiences, llm, images, {e.title for e in text_exps})

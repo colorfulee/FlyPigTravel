@@ -1,6 +1,7 @@
 """用飞猪 flyai 线上真实数据刷新 fixtures/（离线演示与测试用）。
 
-用法：python scripts/refresh_fixtures.py [城市] [入住] [退房] [演示酒店]
+用法：python scripts/refresh_fixtures.py [--fresh] [城市] [入住] [退房] [演示酒店]
+默认复用 .cache/flyai 里已有的线上结果以减少调用（flyai 有限流和风控）；--fresh 全部重新抓取。
 默认：上海 2026-10-31 2026-11-01 上海漕河泾万丽酒店
 
 每个 fixture 文件是“城市级查询 + 演示酒店定向查询”的合并结果，保持 flyai 原始字段不做改写，
@@ -17,16 +18,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.config import settings  # noqa: E402
 from app.flyai import FlyaiClient  # noqa: E402
-from app.pipeline import PERSONA_POI, WANT_POI  # noqa: E402
+from app.pipeline import PERSONA_POI, PERSONA_RECALL, WANT_POI  # noqa: E402
 
-city, check_in, check_out, demo_hotel = (sys.argv[1:] + [None] * 4)[:4]
+fresh = "--fresh" in sys.argv
+args = [a for a in sys.argv[1:] if a != "--fresh"]
+city, check_in, check_out, demo_hotel = (args + [None] * 4)[:4]
 city = city or "上海"
 check_in = check_in or "2026-10-31"
 check_out = check_out or "2026-11-01"
 demo_hotel = demo_hotel or "上海漕河泾万丽酒店"
 
-# 用临时缓存目录，确保拿到的是本次实时数据
-fly = FlyaiClient(mode="live", cache_dir=Path(tempfile.mkdtemp()))
+fly = FlyaiClient(mode="live", cache_dir=Path(tempfile.mkdtemp()) if fresh else None)
 
 
 def merged(command: str, calls: list[dict], key: str) -> dict:
@@ -45,10 +47,15 @@ def merged(command: str, calls: list[dict], key: str) -> dict:
 
 dates = {"check_in_date": check_in, "check_out_date": check_out}
 fixtures = {
-    "search-hotel": merged("search-hotel", [
-        {"dest_name": city, "hotel_stars": "4,5", "sort": "rate_desc", **dates},
-        {"dest_name": city, "key_words": demo_hotel, **dates},
-    ], "shId"),
+    # 酒店按检索词分组：""=通用列表（含演示酒店），其余为点名酒店和人群召回词的结果
+    "search-hotel": {"variant_by": "key_words", "variants": {
+        "": merged("search-hotel", [
+            {"dest_name": city, "hotel_stars": "4,5", "sort": "rate_desc", **dates},
+            {"dest_name": city, "key_words": demo_hotel, **dates},
+        ], "shId"),
+        **{w: merged("search-hotel", [{"dest_name": city, "key_words": w, "hotel_stars": "4,5", **dates}], "shId")
+           for w in [demo_hotel, *PERSONA_RECALL.values()]},
+    }},
     "search-marriott-hotel": merged("search-marriott-hotel", [
         {"dest_name": city, "sort": "rate_desc", **dates},
     ], "shid"),
