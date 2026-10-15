@@ -74,6 +74,9 @@ class Experience(BaseModel):
     bearing: int | None = None  # 相对酒店的方位角，前端空间图使用
     url: str = ""
     personas: list[str] = Field(default_factory=list)  # 适合的人群，空表示通用
+    lat: float | None = None
+    lng: float | None = None
+    mark: str | None = None  # 地图与列表共用的编号，如 "1"
 
 
 class TimelineItem(BaseModel):
@@ -114,3 +117,4 @@ class PlanResponse(BaseModel):
     to_confirm: list[ToConfirm]
     data_mode: str
     warnings: list[str] = Field(default_factory=list)
+    map_image: str | None = None  # 高德静态地图（data URI），未配置 AMAP_KEY 时为空

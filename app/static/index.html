@@ -53,6 +53,15 @@
   .confirm { padding: 8px 0; border-top: 1px solid var(--line); }
   .confirm button { font-size: 12px; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
   svg text { font-size: 11px; fill: var(--ink); }
+  .mapimg { width: 100%; border-radius: 10px; display: block; background: var(--line); }
+  .num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+         background: var(--s-near); color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .num.sm { width: 18px; height: 18px; font-size: 11px; margin-right: 6px; vertical-align: 1px; }
+  .pl { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 1px dashed var(--line); }
+  .pl > div { min-width: 0; }
+  .pl-group { font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  .pl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pl-chips span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--card); }
   .warn { background: #fff7e0; border: 1px solid #f5d27a; border-radius: 10px; padding: 8px 12px; font-size: 13px; margin-top: 14px; }
   .err { background: #fdecec; border-color: #f2b8b5; }
   #progress { margin-top: 10px; }
@@ -88,7 +97,8 @@
     <section class="card">
       <h2>酒店内外 · 空间分布</h2>
       <div id="map"></div>
-      <p class="muted">中心为酒店；内圈步行 20 分钟，外圈车程 30 分钟左右。方位按真实坐标。</p>
+      <p class="muted" id="mapNote"></p>
+      <div id="places"></div>
     </section>
     <section class="card">
       <h2>体验清单 <span class="muted">每一条都标明依据</span></h2>
@@ -201,7 +211,7 @@ function render(d) {
   $("confirm").onclick = (ev) => { const i = ev.target.dataset?.i; if (i === undefined) return;
     navigator.clipboard?.writeText(d.to_confirm[i].script); ev.target.textContent = "已复制"; };
 
-  drawMap(d.experiences);
+  drawMap(d);
   $("result").classList.remove("hidden");
 }
 
@@ -212,7 +222,7 @@ function showJourney(i, byId) {
     if (!items.length) return "";
     return `<div class="day">${day === 0 ? "入住日 " + esc(state.intent.check_in) : "次日 " + esc(state.intent.check_out)}</div>` +
       items.map((t) => { const e = byId[t.experience_id] || {};
-        return `<div class="item"><div class="t">${esc(t.time)}</div><div><b>${esc(t.title)}</b>
+        return `<div class="item"><div class="t">${esc(t.time)}</div><div>${e.mark ? `<span class="num sm">${esc(e.mark)}</span>` : ""}<b>${esc(t.title)}</b>
           <span class="tag s-${esc(e.source)}">${esc(e.source)}</span><span class="ring"> · ${esc(e.ring)}</span>
           <div class="muted">${esc(t.note || e.detail)}</div></div></div>`; }).join("");
   }).join("");
@@ -221,27 +231,63 @@ function showJourney(i, byId) {
     || '<p class="muted">暂无</p>';
 }
 
-function drawMap(exps) {
-  const W = 320, C = W / 2, R1 = 70, R2 = 145;
+const DIRS = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"];
+const dirOf = (b) => DIRS[Math.round(b / 45) % 8];
+const kmOf = (m) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+
+function drawMap(d) {
+  const exps = d.experiences;
+  const marked = exps.filter((e) => e.mark);
   const inside = exps.filter((e) => e.ring === "酒店内");
-  const placed = exps.filter((e) => e.bearing != null && e.distance_m != null);
-  const pos = (e) => {
-    const r = e.ring === "步行圈" ? 18 + (R1 - 18) * Math.min(e.distance_m / 1500, 1)
-                                 : R1 + (R2 - R1) * Math.min((e.distance_m - 1500) / 18500, 1);
+  const unknown = exps.filter((e) => e.ring !== "酒店内" && !e.mark);
+  const real = /^data:image\//.test(d.map_image || "");
+  $("map").innerHTML = real ? `<img class="mapimg" src="${esc(d.map_image)}" alt="酒店与周边体验的高德地图">` : diagram(marked);
+  $("mapNote").textContent = real
+    ? "高德地图：橙色“住”是酒店，绿色编号对应下方列表。"
+    : "示意图：中心是酒店，内圈步行 20 分钟内，外圈为车程；方位按真实坐标，远近按比例压缩。配置高德 Key 后显示真实地图。";
+  const chips = (list) => `<div class="pl-chips">${list.map((e) => `<span>${esc(e.title)}</span>`).join("")}</div>`;
+  $("places").innerHTML =
+    (inside.length ? `<div class="pl-group">酒店内 · ${inside.length} 项</div>${chips(inside)}` : "") +
+    (marked.length ? `<div class="pl-group">周边 · 由近到远</div>` + marked.map((e) => `
+      <div class="pl"><span class="num">${esc(e.mark)}</span><div><b>${esc(e.title)}</b>
+        <div class="muted">${e.ring === "步行圈" ? "步行" : "车程"}约 ${e.minutes} 分钟 · 在酒店${dirOf(e.bearing)}方 ${kmOf(e.distance_m)}</div></div></div>`).join("") : "") +
+    (unknown.length ? `<div class="pl-group">距离待确认</div>${chips(unknown)}` : "");
+}
+
+function diagram(marked) {
+  const W = 320, C = W / 2, R1 = 64, R2 = 140;
+  const far = Math.max(20000, ...marked.map((e) => e.distance_m));
+  const pts = marked.map((e, i) => {
+    // 步行圈线性；车程圈用平方根压缩，2～5km 的地点不至于全挤在内圈边上
+    const r = e.ring === "步行圈" ? 24 + (R1 - 24) * Math.min(e.distance_m / 1500, 1)
+      : R1 + 10 + (R2 - R1 - 10) * Math.sqrt(Math.max(0, e.distance_m - 1500) / (far - 1500));
     const a = (e.bearing - 90) * Math.PI / 180;
-    return [C + r * Math.cos(a), C + r * Math.sin(a)];
-  };
-  $("map").innerHTML = `<svg viewBox="0 0 ${W} ${W}" width="100%" style="max-width:420px;display:block;margin:auto">
+    return { e, i, x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
+  });
+  // 相近地点的编号会重叠：反复把距离小于 20px 的点对推开，并让出中心的酒店
+  for (let k = 0; k < 80; k++) {
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const p = pts[i], q = pts[j];
+        let dx = q.x - p.x, dy = q.y - p.y, dist = Math.hypot(dx, dy);
+        if (dist < 0.01) { dx = Math.cos(i + j); dy = Math.sin(i + j); dist = 1; }
+        if (dist < 20) { const m = (20 - dist) / 2; p.x -= dx / dist * m; p.y -= dy / dist * m; q.x += dx / dist * m; q.y += dy / dist * m; }
+      }
+      const p = pts[i], dc = Math.hypot(p.x - C, p.y - C) || 1;
+      if (dc < 28) { p.x = C + (p.x - C) / dc * 28; p.y = C + (p.y - C) / dc * 28; }
+    }
+  }
+  return `<svg viewBox="-12 -12 ${W + 24} ${W + 24}" width="100%" style="max-width:420px;display:block;margin:auto" role="img" aria-label="酒店周边体验的方位示意图">
     <circle cx="${C}" cy="${C}" r="${R2}" fill="#f0f7f3" stroke="#cfe5d8"/>
     <circle cx="${C}" cy="${C}" r="${R1}" fill="#e3f1e9" stroke="#b9dcc8"/>
+    <text x="${C}" y="${C - R1 + 14}" text-anchor="middle" style="fill:var(--muted)">步行圈</text>
+    <text x="${C}" y="${C - R2 + 14}" text-anchor="middle" style="fill:var(--muted)">车程圈</text>
+    <text x="${C}" y="-2" text-anchor="middle" style="fill:var(--muted)">北</text>
     <circle cx="${C}" cy="${C}" r="16" fill="var(--accent)"/>
     <text x="${C}" y="${C + 4}" text-anchor="middle" style="fill:#fff;font-weight:700">住</text>
-    <text x="${C}" y="${C - R1 + 14}" text-anchor="middle" class="muted">步行圈</text>
-    <text x="${C}" y="${C - R2 + 14}" text-anchor="middle">车程圈</text>
-    ${placed.map((e) => { const [x, y] = pos(e); return `<circle cx="${x}" cy="${y}" r="5" fill="var(--s-near)"/>
-      <text x="${x + 7}" y="${y + 4}">${esc(e.title.replace("【样例】", "").slice(0, 7))}</text>`; }).join("")}
-  </svg>
-  <p class="muted" style="text-align:center">酒店内：${inside.map((e) => esc(e.title)).join("、") || "—"}</p>`;
+    ${pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="var(--s-near)" stroke="#fff" stroke-width="1.5"/>
+      <text x="${p.x.toFixed(1)}" y="${(p.y + 4).toFixed(1)}" text-anchor="middle" style="fill:#fff;font-weight:700">${esc(p.e.mark)}</text>`).join("")}
+  </svg>`;
 }
 
 fetch("/api/health").then((r) => r.json()).then((h) => {

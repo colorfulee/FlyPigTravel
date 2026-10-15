@@ -32,7 +32,7 @@ npm i -g @fly-ai/flyai-cli
 
 # 2. 配置（.env 已被 gitignore，切勿提交）
 cp .env.example .env
-#   填写 DASHSCOPE_API_KEY（百炼）和 FLYAI_API_KEY（飞猪）；AMAP_KEY 可选
+#   填写 DASHSCOPE_API_KEY（百炼）和 FLYAI_API_KEY（飞猪）；AMAP_KEY 可选（“Web服务”类型，用于真实地图）
 
 # 3. 启动
 .venv/bin/uvicorn app.main:app --port 8000
@@ -53,6 +53,6 @@ cp .env.example .env
 | `app/pipeline.py` | 主流程：需求解析、召回排序、体验挖掘、旅程编排、校验与兜底 |
 | `app/flyai.py` | flyai CLI 封装、结果缓存、样例模式 |
 | `app/llm.py` | 百炼（DashScope OpenAI 兼容接口）文本与视觉调用 |
-| `app/geo.py` | 距离、方位、空间分层、可选高德地理编码 |
+| `app/geo.py` | 距离、方位、空间分层；可选高德地理编码与静态地图 |
 | `app/static/index.html` | 移动端 H5 前端 |
 | `docs/` | 选题调研、参赛提交稿 |

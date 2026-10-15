@@ -252,3 +252,25 @@ def test_nearby_keeps_slots_for_main_persona():
     pois += [(Poi(id=f"k{i}", name=f"亲子点{i}", lat=31.30 + i * 0.01, lng=121.49), "海洋馆") for i in range(3)]
     titles = [e.title for e in nearby_experiences(hotel, ["亲子", "情侣"], pois)]
     assert sum(t.startswith("亲子点") for t in titles) == 3 and len(titles) == 8
+
+
+def test_static_map_marks_hotel_and_numbered_places():
+    import httpx
+    seen = {}
+
+    def handler(req):
+        seen["markers"] = req.url.params["markers"]
+        return httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"})
+
+    geo = Geocoder(key="k", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    uri, err = geo.static_map((31.24, 121.49), [("1", 31.245, 121.4906)])
+    assert err is None and uri == "data:image/png;base64,UE5H"
+    assert seen["markers"] == "mid,0xFF6A00,住:121.490000,31.240000|mid,0x059669,1:121.490600,31.245000"
+
+
+def test_static_map_reports_bad_key():
+    import httpx
+    bad = httpx.MockTransport(lambda req: httpx.Response(200, json={"status": "0", "info": "INVALID_USER_KEY"}))
+    uri, err = Geocoder(key="k", client=httpx.Client(transport=bad)).static_map((31.24, 121.49), [])
+    assert uri is None and "INVALID_USER_KEY" in err
+    assert Geocoder(key="").static_map((31.24, 121.49), []) == (None, None)

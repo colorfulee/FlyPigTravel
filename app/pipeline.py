@@ -324,6 +324,7 @@ def nearby_experiences(hotel: Hotel, personas: list[str],
         )
         if dist is not None:
             exp.bearing = round(bearing_deg(hotel.lat, hotel.lng, lat, lng))
+            exp.lat, exp.lng = lat, lng
         out.append(exp)
     # 空间优先：近的在前，距离未知的放最后；超过 50km 的不算 staycation 周边
     out = [e for e in out if e.distance_m is None or e.distance_m <= 50000]
@@ -331,7 +332,11 @@ def nearby_experiences(hotel: Hotel, personas: list[str],
     # 主人群至少保留 5 个名额，避免被对比人群的近处地点挤掉
     main = [e for e in out if personas[0] in e.personas][:5]
     rest = [e for e in out if e not in main][:8 - len(main)]
-    return [e for e in out if e in main or e in rest]
+    out = [e for e in out if e in main or e in rest]
+    # 由近到远编号，地图、空间图和列表用同一套编号
+    for i, e in enumerate(e for e in out if e.lat is not None):
+        e.mark = str(i + 1)
+    return out
 
 
 # ---------------------------------------------------------------- 4. 旅程编排
@@ -568,10 +573,17 @@ def plan(llm: LLM, fly: FlyaiClient, geo: Geocoder, text: str,
     with ThreadPoolExecutor(max_workers=2) as pool:
         journeys = list(pool.map(lambda p: build_journey(llm, intent, p, hotel, exps, co), personas))
 
+    map_image = None
+    if hotel.lat is not None and hotel.lng is not None:
+        marked = [(e.mark, e.lat, e.lng) for e in exps if e.mark]
+        map_image, map_err = geo.static_map((hotel.lat, hotel.lng), marked)
+        if map_err:
+            warnings.append(map_err)
+
     return PlanResponse(
         intent=intent, hotel=hotel, alternatives=ranked[1:4], packages=pkgs, experiences=exps,
         journeys=journeys, to_confirm=to_confirm_list(hotel, exps), data_mode=fly.mode,
-        warnings=warnings,
+        warnings=warnings, map_image=map_image,
     )
 
 
