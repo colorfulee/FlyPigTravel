@@ -156,19 +156,22 @@
     "province": "北京",
     "name": "北京首都国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "PEK"
    },
    {
     "province": "北京",
     "name": "北京大兴国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "PKX"
    },
    {
     "province": "天津",
     "name": "天津滨海国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TSN"
    },
    {
     "province": "天津",
@@ -180,7 +183,8 @@
     "province": "河北",
     "name": "石家庄正定国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SJW"
    },
    {
     "province": "河北",
@@ -192,13 +196,15 @@
     "province": "辽宁",
     "name": "沈阳桃仙国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SHE"
    },
    {
     "province": "辽宁",
     "name": "大连周水子国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "DLC"
    },
    {
     "province": "辽宁",
@@ -210,19 +216,22 @@
     "province": "黑龙江",
     "name": "哈尔滨太平国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "HRB"
    },
    {
     "province": "上海",
     "name": "上海浦东国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "PVG"
    },
    {
     "province": "上海",
     "name": "上海虹桥国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SHA"
    },
    {
     "province": "上海",
@@ -234,19 +243,22 @@
     "province": "江苏",
     "name": "南京禄口国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "NKG"
    },
    {
     "province": "江苏",
     "name": "苏南硕放国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "WUX"
    },
    {
     "province": "江苏",
     "name": "扬州泰州国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "YTY"
    },
    {
     "province": "江苏",
@@ -258,25 +270,29 @@
     "province": "浙江",
     "name": "杭州萧山国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "HGH"
    },
    {
     "province": "浙江",
     "name": "宁波栎社国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "NGB"
    },
    {
     "province": "浙江",
     "name": "温州龙湾国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "WNZ"
    },
    {
     "province": "浙江",
     "name": "义乌国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "YIW"
    },
    {
     "province": "浙江",
@@ -294,37 +310,43 @@
     "province": "安徽",
     "name": "合肥新桥国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "HFE"
    },
    {
     "province": "安徽",
     "name": "黄山屯溪国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TXN"
    },
    {
     "province": "福建",
     "name": "福州长乐国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "FOC"
    },
    {
     "province": "福建",
     "name": "厦门高崎国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "XMN"
    },
    {
     "province": "福建",
     "name": "泉州晋江国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "JJN"
    },
    {
     "province": "福建",
     "name": "武夷山国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "WUS"
    },
    {
     "province": "福建",
@@ -336,31 +358,36 @@
     "province": "江西",
     "name": "南昌昌北国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "KHN"
    },
    {
     "province": "山东",
     "name": "济南遥墙国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TNA"
    },
    {
     "province": "山东",
     "name": "青岛胶东国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TAO"
    },
    {
     "province": "山东",
     "name": "烟台蓬莱国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "YNT"
    },
    {
     "province": "山东",
     "name": "威海大水泊国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "WEH"
    },
    {
     "province": "山东",
@@ -372,43 +399,50 @@
     "province": "河南",
     "name": "郑州新郑国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "CGO"
    },
    {
     "province": "湖北",
     "name": "武汉天河国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "WUH"
    },
    {
     "province": "湖南",
     "name": "长沙黄花国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "CSX"
    },
    {
     "province": "湖南",
     "name": "张家界荷花国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "DYG"
    },
    {
     "province": "广东",
     "name": "广州白云国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "CAN"
    },
    {
     "province": "广东",
     "name": "深圳宝安国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SZX"
    },
    {
     "province": "广东",
     "name": "揭阳潮汕国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SWA"
    },
    {
     "province": "广东",
@@ -426,19 +460,22 @@
     "province": "广西",
     "name": "南宁吴圩国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "NNG"
    },
    {
     "province": "广西",
     "name": "桂林两江国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "KWL"
    },
    {
     "province": "广西",
     "name": "北海福成国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "BHY"
    },
    {
     "province": "广西",
@@ -450,49 +487,57 @@
     "province": "海南",
     "name": "海口美兰国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "HAK"
    },
    {
     "province": "海南",
     "name": "三亚凤凰国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "SYX"
    },
    {
     "province": "重庆",
     "name": "重庆江北国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "CKG"
    },
    {
     "province": "四川",
     "name": "成都双流国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "CTU"
    },
    {
     "province": "四川",
     "name": "成都天府国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TFU"
    },
    {
     "province": "贵州",
     "name": "贵阳龙洞堡国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "KWE"
    },
    {
     "province": "云南",
     "name": "昆明长水国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "KMG"
    },
    {
     "province": "云南",
     "name": "丽江三义国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "LJG"
    },
    {
     "province": "云南",
@@ -504,13 +549,15 @@
     "province": "陕西",
     "name": "西安咸阳国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "XIY"
    },
    {
     "province": "山西",
     "name": "太原武宿国际机场",
     "type": "机场",
-    "status": "已核实"
+    "status": "已核实",
+    "code": "TYN"
    },
    {
     "province": "广东",
