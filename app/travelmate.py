@@ -6,6 +6,7 @@
 
 import datetime as dt
 import json
+import re
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,8 @@ from .llm import LLM
 from .transit import Issue, Rules, Stop, Trip, Verdict, default_rules
 
 PURPOSES = ("旅游", "商务", "访问", "探亲", "工作", "学习", "新闻采访")
+CLOCK = re.compile(r"\b\d{1,2}(:\d{2})\s*(am|pm)?\b|\b\d{1,2}\s*(am|pm)\b|\d{1,2}[:：]\d{2}|\d{1,2}\s*点|noon|midnight",
+                   re.I)
 DEFAULT_TIME = dt.time(12, 0)  # 只说了日期没说时刻时的占位，会写进 assumptions
 
 # 模型偶尔给出全称或旧称，归一到规则表里的国名
@@ -29,9 +32,10 @@ SYSTEM = """你是入境中国旅行助手的需求解析器。用户用英文�
 {{"nationality": 护照国籍（中文国名，从下方名单中选；名单里没有就写中文国名；没说填 null）,
  "origin": 飞来中国前所在的国家或地区（中文，没说填 null）,
  "destination": 离开中国后前往的国家或地区（中文，没说填 null；回国就写其国籍国）,
+ "destination_city": 离开中国后飞往的城市中文名（如 Seoul → 首尔）或 null,
  "entry_port": 入境的机场或口岸（中文全名如“上海浦东国际机场”，或三字码；只说了城市没说机场就填 null）,
  "entry_city": 入境城市中文名或 null, "exit_city": 离境城市中文名或 null,
- "entry_date": "YYYY-MM-DD" 或 null, "entry_time": "HH:MM" 或 null,
+ "entry_date": "YYYY-MM-DD" 或 null, "entry_time": "HH:MM"（只有用户写出具体时刻才填，“morning”这类不算）或 null,
  "exit_port": 离境的机场或口岸，同上, "exit_date": "YYYY-MM-DD" 或 null, "exit_time": "HH:MM" 或 null,
  "places": [{{"text": 用户原话, "zh": 中文标准地名（景点用官方中文名，如 Jiuzhaigou → 九寨沟，pandas in Chengdu → 成都大熊猫繁育研究基地）, "city": 所在城市中文名或 null}}],
  "purpose": {purposes} 之一，没说填“旅游”}}
@@ -52,10 +56,12 @@ class TripRequest(BaseModel):
     nationality: str | None = None
     origin: str | None = None
     destination: str | None = None
+    destination_city: str | None = None  # 查离境航班用
     entry_port: str | None = None
     entry_time: dt.datetime | None = None
     exit_port: str | None = None
     exit_time: dt.datetime | None = None
+    exit_time_known: bool = False  # 用户说了离境时刻（如已订航班）；只给日期时为 False，行程规划会替他查航班
     places: list[PlaceAsk] = Field(default_factory=list)
     purpose: str = "旅游"
     missing: list[str] = Field(default_factory=list)  # 判定前必须向用户追问的字段
@@ -83,6 +89,7 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
         nationality=_country(raw.get("nationality")),
         origin=_country(raw.get("origin")),
         destination=_country(raw.get("destination")),
+        destination_city=_text(raw.get("destination_city")),
         entry_port=_text(raw.get("entry_port")),
         exit_port=_text(raw.get("exit_port")),
         purpose=raw.get("purpose") if raw.get("purpose") in PURPOSES else "旅游",
@@ -90,8 +97,13 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
     )
     req.entry_port = req.entry_port or _port_from_city(rules, _text(raw.get("entry_city")), "入境", req)
     req.exit_port = req.exit_port or _port_from_city(rules, _text(raw.get("exit_city")), "离境", req)
-    req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time"), today, "入境", req.assumptions)
-    req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time"), today, "离境", req.assumptions)
+    # 模型常替用户补一个时刻（没说几点却给 09:00），只有原话里有钟点才采用
+    clock = bool(CLOCK.search(text))
+    req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time") if clock else None, today, "入境",
+                           req.assumptions)
+    req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time") if clock else None, today, "离境",
+                          req.assumptions)
+    req.exit_time_known = req.exit_time is not None and not any(a.startswith("离境时刻") for a in req.assumptions)
     if req.origin is None and req.nationality:
         req.origin = req.nationality
         req.assumptions.append(f"未说明从哪里飞来，按国籍国（{req.nationality}）处理")

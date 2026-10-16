@@ -4,11 +4,12 @@ import hashlib
 import json
 import os
 import re
+import datetime as dt
 import subprocess
 from pathlib import Path
 
 from .config import settings
-from .schemas import Hotel, Package, Poi
+from .schemas import Hotel, Leg, Package, Poi
 
 
 class FlyaiError(RuntimeError):
@@ -130,6 +131,17 @@ class FlyaiClient:
             for i in self.items(data)
         ]
 
+    # 每次只返回 10 条且按出发时间排序，不给出发时段的话全是清晨的车次
+    def search_trains(self, origin: str, destination: str, date: str, after_hour: int | None = None) -> list[Leg]:
+        data = self.run("search-train", origin=origin, destination=destination, dep_date=date,
+                        dep_hour_start=after_hour)
+        return [leg for i in self.items(data) if (leg := _leg(i, "火车"))]
+
+    def search_flights(self, origin: str, destination: str, date: str, after_hour: int | None = None) -> list[Leg]:
+        data = self.run("search-flight", origin=origin, destination=destination, dep_date=date,
+                        dep_hour_start=after_hour)
+        return [leg for i in self.items(data) if (leg := _leg(i, "航班"))]
+
     def search_pois(self, city: str, category: str | None = None,
                     keyword: str | None = None) -> list[Poi]:
         data = self.run("search-poi", city_name=city, category=category, keyword=keyword)
@@ -158,3 +170,22 @@ class FlyaiClient:
             url=i.get("detailUrl") or "", brand=i.get("brandName") or brand_default,
             decorated=_year(i.get("decorationTime")),
         )
+
+
+def _leg(item: dict, mode: str) -> Leg | None:
+    """journeys[0].segments 是直达 1 段或中转多段；字段缺失的条目丢弃。"""
+    try:
+        segs = item["journeys"][0]["segments"]
+        first, last = segs[0], segs[-1]
+        dep = dt.datetime.fromisoformat(first["depDateTime"])
+        arr = dt.datetime.fromisoformat(last["arrDateTime"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    minutes = int(_float(item.get("totalDuration")) or (arr - dep).total_seconds() // 60)
+    return Leg(
+        mode=mode, no=" + ".join(s.get("marketingTransportNo") or "?" for s in segs),
+        dep_station=first.get("depStationName") or "", dep_code=first.get("depStationCode") or "",
+        arr_station=last.get("arrStationName") or "", dep_time=dep, arr_time=arr, minutes=minutes,
+        transfers=len(segs) - 1, price=_float(item.get("price") or item.get("ticketPrice")),
+        url=item.get("jumpUrl") or "",
+    )

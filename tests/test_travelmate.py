@@ -62,8 +62,20 @@ def fake_geo(calls=None):
 
 # ---- 需求解析 ----
 
+def test_model_time_ignored_without_clock_in_text():
+    """原话没有钟点时，模型给的 14:30 / 09:00 都不采用。"""
+    r = parse_request(trip(exit_time="09:00"), "landing Oct 26, leaving Nov 4", TODAY)
+    assert r.entry_time.time() == dt.time(12, 0) and r.exit_time.time() == dt.time(12, 0)
+    assert not r.exit_time_known and len(r.assumptions) == 2
+
+
+def test_exit_time_known_when_stated():
+    r = parse_request(trip(exit_time="10:30"), "land 2:30pm Oct 26, my flight out is 10:30 on Nov 4", TODAY)
+    assert r.exit_time == dt.datetime(2026, 11, 4, 10, 30) and r.exit_time_known
+
+
 def test_parse_full_request():
-    r = parse_request(trip(), "…", TODAY)
+    r = parse_request(trip(), "landing at 2:30pm on Oct 26", TODAY)
     assert (r.nationality, r.origin, r.destination) == ("美国", "美国", "韩国")
     assert r.entry_time == dt.datetime(2026, 10, 26, 14, 30)
     assert r.exit_time == dt.datetime(2026, 11, 4, 12, 0)
