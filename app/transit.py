@@ -118,6 +118,11 @@ class Rules:
         hits = [p for p in self.ports if key in _port_key(p.name)]
         return hits[0] if len(hits) == 1 else None
 
+    def ports_in_city(self, city: str) -> list[Port]:
+        """城市里的已核实口岸，如“昆明” → [昆明长水国际机场]；用于用户只说了城市没说机场的情况。"""
+        c = _city_key(city)
+        return [p for p in self.ports if len(c) >= 2 and p.verified and p.name.startswith(c)] if c else []
+
     # ---- R6 停留区域 ----
     def in_area(self, province: str, city: str = "") -> bool | None:
         """True / False；该省只开放部分城市而城市未知时返回 None。"""
