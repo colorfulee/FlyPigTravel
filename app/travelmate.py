@@ -66,6 +66,12 @@ class TripRequest(BaseModel):
     purpose: str = "旅游"
     missing: list[str] = Field(default_factory=list)  # 判定前必须向用户追问的字段
     assumptions: list[str] = Field(default_factory=list)  # 代码替用户补的值，页面上要明示
+    missing_en: list[str] = Field(default_factory=list)  # 与上面两项一一对应的英文
+    assumptions_en: list[str] = Field(default_factory=list)
+
+    def assume(self, zh: str, en: str) -> None:
+        self.assumptions.append(zh)
+        self.assumptions_en.append(en)
 
 
 class LocatedStop(BaseModel):
@@ -99,30 +105,32 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
     req.exit_port = req.exit_port or _port_from_city(rules, _text(raw.get("exit_city")), "离境", req)
     # 模型常替用户补一个时刻（没说几点却给 09:00），只有原话里有钟点才采用
     clock = bool(CLOCK.search(text))
-    req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time") if clock else None, today, "入境",
-                           req.assumptions)
-    req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time") if clock else None, today, "离境",
-                          req.assumptions)
+    req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time") if clock else None, today, "入境", req)
+    req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time") if clock else None, today, "离境", req)
     req.exit_time_known = req.exit_time is not None and not any(a.startswith("离境时刻") for a in req.assumptions)
     if req.origin is None and req.nationality:
         req.origin = req.nationality
-        req.assumptions.append(f"未说明从哪里飞来，按国籍国（{req.nationality}）处理")
+        req.assume(f"未说明从哪里飞来，按国籍国（{req.nationality}）处理",
+                   "You didn't say where you're flying in from, so we assumed your home country.")
     # _port_from_city 已经写了带候选机场的追问时，不再重复问一遍笼统的“入境机场”
-    req.missing = [label for field, label in _required(rules, req.nationality)
-                   if getattr(req, field) is None and not any(m.startswith(label) for m in req.missing)] + req.missing
+    asks = [(label, en) for field, label, en in _required(rules, req.nationality)
+            if getattr(req, field) is None and not any(m.startswith(label) for m in req.missing)]
+    req.missing = [zh for zh, _ in asks] + req.missing
+    req.missing_en = [en for _, en in asks] + req.missing_en
     return req
 
 
-def _required(rules: Rules, nationality: str | None) -> list[tuple[str, str]]:
+def _required(rules: Rules, nationality: str | None) -> list[tuple[str, str, str]]:
     """判定所需的字段因政策而异：30 天单方面免签不看口岸和下一站。"""
     if nationality is None:
-        return [("nationality", "国籍")]
+        return [("nationality", "国籍", "Which passport will you travel on?")]
     policy = rules.policy_for(nationality)
     if policy == "not_eligible":
         return []
-    need = [("entry_time", "入境日期")]
+    need = [("entry_time", "入境日期", "What date do you arrive in China?")]
     if policy == "transit_240h":
-        need += [("entry_port", "入境机场"), ("destination", "离开中国后去哪个国家")]
+        need += [("entry_port", "入境机场", "Which airport do you land at?"),
+                 ("destination", "离开中国后去哪个国家", "Where do you fly to after China?")]
     return need
 
 
@@ -131,14 +139,18 @@ def _port_from_city(rules: Rules, city: str | None, label: str, req: TripRequest
         return None
     ports = rules.ports_in_city(city)
     if len(ports) == 1:
-        req.assumptions.append(f"{city}只有一个适用口岸，{label}按{ports[0].name}计算")
+        req.assume(f"{city}只有一个适用口岸，{label}按{ports[0].name}计算",
+                   f"{_EN_LABEL[label]} airport: {ports[0].name} (the only eligible one in {city}).")
         return ports[0].name
     if len(ports) > 1:
         options = f"{label}机场（{city}有 {len(ports)} 个：{'、'.join(p.name for p in ports)}）"
+        names = " / ".join(p.name for p in ports)
         if label == "入境":
             req.missing.append(options)
+            req.missing_en.append(f"Which airport in {city} do you land at? ({names})")
         else:  # 离境机场不影响能否判定，先不追问，订票时再定
-            req.assumptions.append(f"{options}尚未确定，暂不校验离境口岸")
+            req.assume(f"{options}尚未确定，暂不校验离境口岸",
+                       f"Departure airport in {city} not chosen yet ({names}); we'll check it once you book.")
     return None
 
 
@@ -162,7 +174,8 @@ def assess(llm: LLM, geo: Geocoder, text: str, today: dt.date, rules: Rules | No
     out.verdict = rules.check(trip)
     # 定位失败不能断言“在区域外”，交给用户确认
     out.verdict.issues += [Issue(rule="R6", level="warn", subject=s.ask.zh,
-                                 message=f"没能确定「{s.ask.text}」在哪个省市，请确认它是否在允许停留区域内")
+                                 message=f"没能确定「{s.ask.text}」在哪个省市，请确认它是否在允许停留区域内",
+                                 en=f"We couldn't locate \"{s.ask.text}\". Please check it's inside the allowed area.")
                            for s in stops if s.place is None]
     return out
 
@@ -193,7 +206,10 @@ def _places(items) -> list[PlaceAsk]:
     return out[:12]
 
 
-def _when(date_v, time_v, today: dt.date, label: str, assumptions: list[str]) -> dt.datetime | None:
+_EN_LABEL = {"入境": "Arrival", "离境": "Departure"}
+
+
+def _when(date_v, time_v, today: dt.date, label: str, req: TripRequest) -> dt.datetime | None:
     try:
         d = dt.date.fromisoformat(str(date_v))
     except ValueError:
@@ -207,7 +223,8 @@ def _when(date_v, time_v, today: dt.date, label: str, assumptions: list[str]) ->
         t = dt.time.fromisoformat(str(time_v))
     except ValueError:
         t = DEFAULT_TIME
-        assumptions.append(f"{label}时刻未说明，暂按 {d:%m-%d} 12:00 计算")
+        req.assume(f"{label}时刻未说明，暂按 {d:%m-%d} 12:00 计算",
+                   f"{_EN_LABEL[label]} time not given, so we used {d:%b %d} 12:00 noon.")
     return dt.datetime.combine(d, t)
 
 

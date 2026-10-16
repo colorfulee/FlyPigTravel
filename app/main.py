@@ -1,3 +1,5 @@
+import datetime as dt
+import hashlib
 import json
 
 from fastapi import FastAPI, HTTPException
@@ -10,7 +12,9 @@ from .flyai import FlyaiClient, FlyaiError
 from .geo import Geocoder
 from .llm import Bailian, LLMError
 from .pipeline import plan, read_screenshot
+from .route import Itinerary, plan_route
 from .schemas import PlanResponse
+from .travelmate import Assessment, assess
 
 STATIC = ROOT / "app" / "static"
 SNAPSHOT_DIR = settings.cache_dir / "snapshots"
@@ -86,3 +90,44 @@ def api_screenshot(req: ScreenshotRequest):
         return read_screenshot(llm(), req.image)
     except LLMError as e:
         raise HTTPException(502, str(e)) from e
+
+
+# ---------------------------------------------------------------- 入境游客：240 小时过境免签行程
+
+
+class TransitResponse(BaseModel):
+    assessment: Assessment
+    itinerary: Itinerary
+
+
+@app.get("/transit")
+def transit_page():
+    return FileResponse(STATIC / "transit.html")
+
+
+@app.post("/api/transit", response_model=TransitResponse)
+def api_transit(req: PlanRequest):
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "Tell us about your trip")
+    if len(text) > 2000:
+        raise HTTPException(413, "Please keep it under 2000 characters")
+    try:
+        a = assess(llm(), geo, text, dt.date.today())
+        result = TransitResponse(assessment=a, itinerary=plan_route(a, fly, geo))
+    except LLMError as e:
+        raise HTTPException(502, f"Our AI service is busy, please try again ({e})") from e
+    # 每个需求单独存一份：演示兜底，也供离线预览页录制
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha1(text.encode()).hexdigest()[:12]
+    for name in (f"transit-{key}.json", "transit-last.json"):
+        (SNAPSHOT_DIR / name).write_text(result.model_dump_json(), encoding="utf-8")
+    return result
+
+
+@app.get("/api/transit/snapshot", response_model=TransitResponse)
+def api_transit_snapshot():
+    path = SNAPSHOT_DIR / "transit-last.json"
+    if not path.exists():
+        raise HTTPException(404, "No saved result yet")
+    return json.loads(path.read_text(encoding="utf-8"))

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TravelMate · China Visa-Free Planner</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --ink: #1d2330; --muted: #667085; --line: #e4e7ec;
+    --accent: #ff6a00; --accent-soft: #fff2e8;
+    --ok: #079455; --ok-soft: #ecfdf3; --bad: #d92d20; --bad-soft: #fef3f2; --warn: #b54708; --warn-soft: #fffaeb;
+    --info: #1570ef; --info-soft: #eff8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px 16px 64px; }
+  h1 { font-size: 24px; margin: 8px 0 2px; }
+  h1 small { display: block; font-size: 14px; color: var(--muted); font-weight: 400; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 14px; }
+  textarea { width: 100%; min-height: 96px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+  .chip:hover, .chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  button.primary { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, .chip:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .zh { color: var(--muted); font-size: 13px; }
+  .hidden { display: none !important; }
+  #progress { margin-top: 10px; }
+
+  .verdict { border-radius: 14px; padding: 16px; margin-top: 14px; border: 1px solid; }
+  .verdict.ok { background: var(--ok-soft); border-color: #abefc6; }
+  .verdict.bad { background: var(--bad-soft); border-color: #fecdca; }
+  .verdict.info { background: var(--info-soft); border-color: #b2ddff; }
+  .verdict .title { font-size: 19px; font-weight: 700; }
+  .verdict.ok .title { color: var(--ok); } .verdict.bad .title { color: var(--bad); } .verdict.info .title { color: var(--info); }
+
+  .deadline { font-size: 22px; font-weight: 700; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .bar { position: relative; height: 10px; background: var(--line); border-radius: 999px; margin: 18px 0 26px; }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--ok); }
+  .bar .fill.over { background: var(--bad); }
+  .bar .tick { position: absolute; top: 14px; font-size: 12px; color: var(--muted); transform: translateX(-50%); white-space: nowrap; }
+  .bar .tick.l { transform: none; } .bar .tick.r { transform: translateX(-100%); }
+  .bar .pin { position: absolute; top: -4px; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--ink); transform: translateX(-50%); }
+  .dot.removed { background: var(--muted); }
+
+  .issue { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 8px 0; border-top: 1px dashed var(--line); }
+  .issue:first-of-type { border-top: 0; }
+  .dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; }
+  .dot.block { background: var(--bad); } .dot.warn { background: #f79009; } .dot.info { background: var(--info); }
+  .issue .rule { font-size: 12px; color: var(--muted); }
+
+  .stop { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .stop:first-of-type { border-top: 0; }
+  .stop .date { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .stop .city { font-weight: 700; font-size: 16px; }
+  .pill { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--accent-soft); color: #9a3d00; margin: 4px 4px 0 0; }
+  .leg { margin: 0 0 0 74px; padding: 10px 12px; border-left: 3px solid var(--accent); background: #fafafa; border-radius: 0 10px 10px 0; font-size: 14px; }
+  .leg .no { font-weight: 700; }
+  .leg.missing { border-left-color: #f79009; background: var(--warn-soft); }
+  a.book { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .removed span { display: inline-block; font-size: 13px; text-decoration: line-through; color: var(--bad); margin-right: 10px; }
+  .ask input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; margin-top: 4px; }
+  .ask label { display: block; margin-top: 10px; font-weight: 600; font-size: 14px; }
+  .err { background: var(--bad-soft); border: 1px solid #fecdca; border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-size: 14px; }
+  footer { text-align: center; margin-top: 24px; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>TravelMate <small>Plan a China trip that fits the 240-hour visa-free transit rules</small></h1>
+
+  <section class="card">
+    <label for="q" class="muted">Tell us your passport, arrival, where you fly next, and what you want to see.</label>
+    <textarea id="q" placeholder="I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm, flying to Seoul on Nov 4. Want Hangzhou and the pandas in Chengdu."></textarea>
+    <div class="row" style="margin-top:8px" id="examples"></div>
+    <div class="row" style="margin-top:12px; justify-content:flex-end">
+      <button class="primary" id="go">Check my trip</button>
+    </div>
+    <div id="progress" class="muted hidden" role="status" aria-live="polite"></div>
+  </section>
+
+  <div id="status"></div>
+
+  <div id="result" class="hidden">
+    <section id="verdict" class="verdict"></section>
+    <section class="card" id="askCard"></section>
+    <section class="card" id="clockCard"></section>
+    <section class="card" id="issuesCard"><h2>What we checked</h2><div id="issues"></div></section>
+    <section class="card" id="planCard"><h2>Your route</h2><div id="removed" class="removed"></div><div id="plan"></div></section>
+    <section class="card" id="notesCard"><h2>We assumed</h2><ul id="notes" class="muted" style="margin:0;padding-left:18px"></ul></section>
+  </div>
+
+  <footer class="muted" id="foot">
+    Not legal advice. Rules as of <span id="asof">—</span>, from China's National Immigration Administration.
+    Confirm with the immigration hotline <b>12367</b> before you fly.<br>
+    Trains &amp; flights via Fliggy · AI by Alibaba Cloud Bailian
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => /^https?:\/\//.test(u || "") ? u : "";
+const USD_RATE = 7.1;  // 仅用于显示约数
+
+const EXAMPLES = [
+  "I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm from LA, flying to Seoul on Nov 4. Want to see Shanghai, Hangzhou, the pandas in Chengdu and Jiuzhaigou.",
+  "US passport. Arriving Beijing Capital Nov 1 morning from San Francisco, leaving from Xi'an to Tokyo Nov 12. Great Wall, Forbidden City, Terracotta Warriors.",
+  "Hi! Mexican citizen, flying Mexico City -> Guangzhou on Dec 3, then back home Dec 10 from Guangzhou. Want Guilin and Yangshuo.",
+  "I'm German, coming to Kunming from Bangkok next week, want Dali, Lijiang and Shangri-La, then fly to Singapore.",
+];
+const EXAMPLE_TITLES = ["🇺🇸 Shanghai → Chengdu, plus Jiuzhaigou", "🇺🇸 Beijing → Xi'an, leaving late",
+  "🇲🇽 Flying home from Guangzhou", "🇩🇪 Yunnan from Bangkok"];
+$("examples").innerHTML = EXAMPLES.map((e, i) => `<button type="button" class="chip" data-i="${i}">${esc(EXAMPLE_TITLES[i])}</button>`).join("");
+$("examples").onclick = (ev) => {
+  const c = ev.target.closest(".chip"); if (!c) return;
+  [...$("examples").children].forEach((x) => x.classList.toggle("on", x === c));
+  $("q").value = EXAMPLES[+c.dataset.i];
+};
+
+// ---- 时间：后端给的是北京时间、不带时区的 ISO 字符串，直接按字面显示，不做时区换算 ----
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const parts = (iso) => { const [d, t = "00:00"] = String(iso).split("T"); const [y, m, dd] = d.split("-").map(Number); return { y, m, d: dd, t: t.slice(0, 5) }; };
+const day = (iso) => { const p = parts(iso); return `${MON[p.m - 1]} ${p.d}`; };
+const dayW = (iso) => { const p = parts(iso); return `${DOW[new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay()]}, ${MON[p.m - 1]} ${p.d}`; };
+const when = (iso) => `${day(iso)}, ${parts(iso).t}`;
+const ms = (iso) => { const p = parts(iso); const [h, mi] = p.t.split(":").map(Number); return Date.UTC(p.y, p.m - 1, p.d, h, mi); };
+const dur = (min) => { const a = Math.abs(min), h = Math.floor(a / 60), m = a % 60; return h ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`; };
+// 截止 00:00 写成“前一天 23:59”，避免游客以为当天还能走
+const lastMinute = (iso) => { const p = parts(iso); if (p.t !== "00:00") return `${dayW(iso)}, ${p.t}`;
+  const prev = new Date(ms(iso) - 60e3).toISOString().slice(0, 16); return `${dayW(prev)}, 23:59`; };
+const money = (cny) => cny == null ? "" : `¥${Math.round(cny)} <span class="muted">(≈ $${Math.round(cny / USD_RATE)})</span>`;
+
+const STEPS = ["Reading your plan…", "Checking the visa-free rules…", "Locating every place on the map…", "Finding trains and flights on Fliggy…", "Checking the whole route again…"];
+let timer;
+function busy(on) {
+  $("go").disabled = on;
+  $("progress").classList.toggle("hidden", !on);
+  clearInterval(timer);
+  if (on) { let i = 0; $("progress").textContent = STEPS[0]; timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("progress").textContent = STEPS[i]; }, 5000); }
+}
+
+async function check(text) {
+  busy(true); $("status").innerHTML = "";
+  try {
+    const r = await fetch("/api/transit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || `Request failed (${r.status})`);
+    render(data);
+  } catch (e) {
+    $("status").innerHTML = `<div class="err">${esc(e.message)} <a href="#" id="snap">Show the last saved result</a></div>`;
+    $("snap").onclick = async (ev) => { ev.preventDefault(); const r = await fetch("/api/transit/snapshot"); if (r.ok) render(await r.json()); };
+  } finally { busy(false); }
+}
+$("go").onclick = () => { const t = $("q").value.trim(); if (t) check(t); else $("q").focus(); };
+
+function render(d) {
+  const a = d.assessment, it = d.itinerary, req = a.request;
+  const v = it.verdict || a.verdict;
+  const placeEn = Object.fromEntries(a.stops.map((s) => [s.ask.zh, s.ask.text]));
+  const label = (zh) => placeEn[zh] && placeEn[zh] !== zh ? `${esc(placeEn[zh])} <span class="zh">${esc(zh)}</span>` : esc(zh);
+  $("asof").textContent = a.rules_as_of;
+  $("result").classList.remove("hidden");
+
+  // 1. 结论
+  const blocks = v ? v.issues.filter((i) => i.level === "block") : [];
+  let cls = "info", title = "We need a few more details", sub = "";
+  if (v && v.policy === "unilateral_30d") { cls = blocks.length ? "bad" : "info"; title = blocks.length ? "Your stay is too long" : "You can enter visa-free for 30 days"; sub = "Your passport qualifies for China's 30-day visa-free entry, which is simpler than the 240-hour transit rule."; }
+  else if (v && v.policy === "not_eligible") { cls = "bad"; title = "You'll need a visa"; }
+  else if (v) {
+    const n = it.skipped.length, names = it.skipped.map((z) => placeEn[z] || z).join(", ");
+    cls = blocks.length ? "bad" : n ? "info" : "ok";
+    title = blocks.length ? `Not allowed as planned: ${blocks.length} problem${blocks.length > 1 ? "s" : ""}`
+      : n ? `Works once you skip ${names}` : "Your trip fits the 240-hour visa-free transit rules";
+    sub = blocks.length ? "See what to change below."
+      : n ? `${names} ${n > 1 ? "are" : "is"} outside the area visa-free visitors may enter, so we planned the route without ${n > 1 ? "them" : "it"}. Everything else below has been checked against the rules.`
+      : "Every city, date and airport below has been checked against the rules.";
+  }
+  $("verdict").className = `verdict ${cls}`;
+  $("verdict").innerHTML = `<div class="title">${esc(title)}</div>${sub ? `<div style="margin-top:4px">${esc(sub)}</div>` : ""}`;
+
+  // 2. 追问
+  $("askCard").classList.toggle("hidden", !req.missing_en.length);
+  $("askCard").innerHTML = req.missing_en.length ? `<h2>Just a few questions</h2><div class="ask">${req.missing_en.map((m, i) => `<label for="ans${i}">${esc(m)}</label><input id="ans${i}" autocomplete="off">`).join("")}</div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="primary" id="reask">Re-check</button></div>` : "";
+  if (req.missing_en.length) $("reask").onclick = () => {
+    const extra = req.missing_en.map((m, i) => { const v = $(`ans${i}`).value.trim(); return v ? `${m} ${v}.` : ""; }).filter(Boolean).join(" ");
+    if (!extra) return;
+    $("q").value = `${$("q").value.trim()} ${extra}`; check($("q").value);
+  };
+
+  // 3. 截止时间与倒计时条
+  $("clockCard").classList.toggle("hidden", !(v && v.deadline));
+  if (v && v.deadline) {
+    const hours = v.policy === "unilateral_30d" ? 30 * 24 : 240;
+    const startMs = ms(v.deadline) - hours * 3600e3;
+    const exitIso = it.exit_leg ? it.exit_leg.dep_time : req.exit_time;
+    let barHtml = "";
+    if (exitIso) {
+      const pct = Math.max(0, Math.min(100, (ms(exitIso) - startMs) / (hours * 3600e3) * 100));
+      const over = v.minutes_to_spare != null && v.minutes_to_spare < 0;
+      barHtml = `<div class="bar" aria-hidden="true"><div class="fill ${over ? "over" : ""}" style="width:${pct}%"></div>
+        <span class="pin" style="left:${pct}%"></span>
+        <span class="tick l" style="left:0">Clock starts</span><span class="tick r" style="left:100%">Deadline</span></div>
+        <div>${over ? `<b style="color:var(--bad)">${dur(v.minutes_to_spare)} over the limit</b>` : `<b style="color:var(--ok)">${dur(v.minutes_to_spare)} to spare</b>`} · you leave ${esc(when(exitIso))}</div>`;
+    }
+    const startIso = new Date(startMs).toISOString().slice(0, 16);
+    $("clockCard").innerHTML = `<h2>${v.policy === "unilateral_30d" ? "30-day limit" : "Your 240-hour clock"}</h2>
+      <div class="muted">Your departure must be no later than</div>
+      <div class="deadline">${esc(lastMinute(v.deadline))} <span class="muted" style="font-weight:400;font-size:14px">Beijing time</span></div>
+      <div class="muted">The clock starts at 00:00 the day after you land (${esc(when(startIso))}), so landing late in the day costs you nothing.</div>
+      ${barHtml}`;
+  }
+
+  // 4. 问题清单
+  // 规划前被区域规则拦下、已移出行程的地点，也要在清单里交代
+  const removed = (a.verdict ? a.verdict.issues : []).filter((i) => i.rule === "R6" && i.level === "block" && it.skipped.includes(i.subject))
+    .map((i) => ({ ...i, level: "removed", en: `${i.en} We removed it from your route.` }));
+  const issues = [...removed, ...(v ? v.issues : []), ...it.issues];
+  $("issuesCard").classList.toggle("hidden", !v);
+  const icon = { block: "✕", warn: "!", info: "i", removed: "–" };
+  // 英文提示里的中文地名换成用户自己写的叫法（九寨沟 → Jiuzhaigou）
+  const enText = (i) => { const t = i.en || i.message; return placeEn[i.subject] ? t.replace(i.subject, placeEn[i.subject]) : t; };
+  $("issues").innerHTML = issues.length ? issues.map((i) => `<div class="issue"><span class="dot ${i.level}" aria-label="${i.level}">${icon[i.level]}</span>
+      <div>${esc(enText(i))}${i.level === "warn" && /^R\d/.test(i.rule) ? ` <span class="muted">Unconfirmed rule</span>` : ""}<div class="rule">${esc(i.rule)} · ${esc(i.message)}</div></div></div>`).join("")
+    : `<div class="issue"><span class="dot info" style="background:var(--ok)">✓</span><div>Nationality, onward country, ports, dates and every place passed all 9 rules.</div></div>`;
+  if (removed.length && !(v ? v.issues : []).length && !it.issues.length)
+    $("issues").innerHTML += `<div class="issue"><span class="dot info" style="background:var(--ok)">✓</span><div>Everything else passed all 9 rules.</div></div>`;
+
+  // 5. 行程
+  $("planCard").classList.toggle("hidden", !it.cities.length);
+  $("removed").innerHTML = it.skipped.length ? `<div class="muted" style="margin-bottom:6px">Removed (outside the allowed area):</div>${it.skipped.map((z) => `<span>${label(z)}</span>`).join("")}` : "";
+  const legHtml = (l, booked) => !l ? `<div class="leg missing">No train or flight found for this hop yet. Try another day.</div>` : `
+    <div class="leg">${l.mode === "火车" ? "🚄 Train" : "✈️ Flight"} <span class="no">${esc(l.no)}</span> · ${esc(dur(l.minutes))}${l.transfers ? ` · ${l.transfers} stop` : ""}
+      <div>${esc(when(l.dep_time))} <b>${esc(l.dep_station)}</b> → ${esc(parts(l.arr_time).t)} <b>${esc(l.arr_station)}</b></div>
+      <div class="row" style="justify-content:space-between;margin-top:2px"><span>${money(l.price)}</span>
+      ${safeUrl(l.url) ? `<a class="book" href="${esc(l.url)}" target="_blank" rel="noopener">Book on Fliggy →</a>` : ""}</div></div>`;
+  $("plan").innerHTML = it.cities.map((c, i) => {
+    const name = c.name_en ? `${esc(c.name_en)} <span class="zh">${esc(c.name)}</span>` : esc(c.name);
+    const stay = c.nights ? `${c.nights} night${c.nights > 1 ? "s" : ""}` : (i === 0 ? "arrive & move on" : i === it.cities.length - 1 ? "fly out" : "pass through");
+    const places = c.places.filter((p) => p !== c.name);
+    return `<div class="stop"><div class="date">${esc(day(c.arrive))}</div><div><div class="city">${name}</div><div class="muted">${stay}</div>
+        ${places.map((p) => `<span class="pill">${label(p)}</span>`).join("")}</div></div>` + (i < it.legs.length ? legHtml(it.legs[i]) : "");
+  }).join("") + (it.exit_leg ? `<div class="stop"><div class="date">${esc(day(it.exit_leg.dep_time))}</div><div><div class="city">Leave China</div><div class="muted">Eligible exit airport · before your deadline</div></div></div>${legHtml(it.exit_leg)}`
+    : it.exit_leg_booked ? `<div class="stop"><div class="date">${esc(day(req.exit_time))}</div><div><div class="city">Leave China</div><div class="muted">Your booked departure</div></div></div>` : "");
+
+  // 6. 假设
+  $("notesCard").classList.toggle("hidden", !req.assumptions_en.length);
+  $("notes").innerHTML = req.assumptions_en.map((n) => `<li>${esc(n)}</li>`).join("");
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+</script>
+</body>
+</html>

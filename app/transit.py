@@ -62,6 +62,7 @@ class Issue(BaseModel):
     rule: str  # R1–R9
     level: Level
     message: str
+    en: str = ""  # 英文版，给入境游客看的页面用
     subject: str = ""  # 涉及的地点 / 口岸，便于前端高亮
 
 
@@ -151,15 +152,20 @@ class Rules:
             # 这些国家按 30 天单方面免签入境：不受第三国、口岸、24 省区域限制，过境免签的校验不适用
             deadline = self.unilateral_deadline(trip.entry_time)
             issues.append(Issue(rule="R9", level="info", subject=trip.nationality,
-                                message=f"{trip.nationality}公民可单方面免签入境停留 30 天，不需要第三国联程票，比过境免签更宽松"))
+                                message=f"{trip.nationality}公民可单方面免签入境停留 30 天，不需要第三国联程票，比过境免签更宽松",
+                                en="Good news: your passport qualifies for 30-day visa-free entry. You don't need the "
+                                   "240-hour transit rules, an onward ticket to a third country, or to stay in specific provinces."))
             spare = int((deadline - trip.exit_time).total_seconds() // 60) if trip.exit_time else None
             if spare is not None and spare < 0:
                 issues.append(Issue(rule="R9", level="block",
-                                    message=f"单方面免签最多停留 30 天，最晚须在 {deadline:%m-%d %H:%M} 前离境"))
+                                    message=f"单方面免签最多停留 30 天，最晚须在 {deadline:%m-%d %H:%M} 前离境",
+                                    en=f"30-day visa-free entry allows 30 days at most. You must leave by {deadline:%b %d, %H:%M}."))
             return Verdict(policy=policy, deadline=deadline, minutes_to_spare=spare, issues=issues)
         if policy == "not_eligible":
             issues.append(Issue(rule="R1", level="block", subject=trip.nationality,
-                                message=f"{trip.nationality}不在 240 小时过境免签适用的 {len(self.transit_countries)} 国名单内，需要办理签证"))
+                                message=f"{trip.nationality}不在 240 小时过境免签适用的 {len(self.transit_countries)} 国名单内，需要办理签证",
+                                en=f"Your nationality is not among the {len(self.transit_countries)} countries eligible for "
+                                   "240-hour visa-free transit. You'll need a Chinese visa."))
             return Verdict(policy=policy, issues=issues)
 
         deadline = self.deadline(trip.entry_time)
@@ -168,40 +174,56 @@ class Rules:
         spare = None
         if trip.exit_time is None:
             issues.append(Issue(rule="R3", level="block",
-                                message="需要持有确定日期和座位、前往第三国（地区）的联程客票"))
+                                message="需要持有确定日期和座位、前往第三国（地区）的联程客票",
+                                en="You need a confirmed onward ticket (fixed date and seat) to a third country or region."))
         else:
             spare = int((deadline - trip.exit_time).total_seconds() // 60)
             if trip.exit_time <= trip.entry_time:
-                issues.append(Issue(rule="R3", level="block", message="离境时间早于入境时间，请检查日期"))
+                issues.append(Issue(rule="R3", level="block", message="离境时间早于入境时间，请检查日期",
+                                en="Your departure is before your arrival. Please check the dates."))
             elif spare < 0:
                 over = trip.exit_time - deadline
                 issues.append(Issue(rule="R5", level="block",
                                     message=f"离境时间超出 240 小时，最晚须在 {deadline:%m-%d %H:%M} 前离境，"
-                                            f"超出 {_fmt_duration(over)}"))
+                                            f"超出 {_fmt_duration(over)}",
+                                    en=f"You'd stay longer than 240 hours: you must leave by {deadline:%b %d, %H:%M}, "
+                                       f"but your plan leaves {_fmt_duration_en(over)} later."))
         for s in trip.stops:
             inside = self.in_area(s.province, s.city)
             if inside is None:
                 issues.append(Issue(rule="R6", level="warn", subject=s.name,
-                                    message=f"{s.province}只开放部分城市，{s.name}所在城市未知，请确认"))
+                                    message=f"{s.province}只开放部分城市，{s.name}所在城市未知，请确认",
+                                    en=f"Only some cities in {s.province} are open to transit visitors and we couldn't tell "
+                                       f"which city {s.name} is in. Please check."))
             elif not inside:
                 issues.append(Issue(rule="R6", level="block", subject=s.name,
-                                    message=f"{s.name}（{s.province}{s.city}）不在过境免签允许停留区域内"))
+                                    message=f"{s.name}（{s.province}{s.city}）不在过境免签允许停留区域内",
+                                    en=f"{s.name} ({s.province} {s.city}) is outside the area where 240-hour visa-free "
+                                       "visitors may travel."))
         if any(w in trip.purpose for w in NEEDS_VISA):
             issues.append(Issue(rule="R8", level="block", subject=trip.purpose,
-                                message=f"过境免签只限旅游、商务、访问、探亲等短期活动，{trip.purpose}需要办理签证"))
+                                message=f"过境免签只限旅游、商务、访问、探亲等短期活动，{trip.purpose}需要办理签证",
+                                en="Visa-free transit only covers tourism, business, visits and family visits. "
+                                   "Work, study or journalism requires a visa."))
         return Verdict(policy=policy, deadline=deadline, minutes_to_spare=spare, issues=issues)
 
     @staticmethod
     def _check_route(trip: Trip) -> list[Issue]:
         if trip.destination in (MAINLAND, "中国"):
             return [Issue(rule="R2", level="block", subject=trip.destination,
-                          message="过境免签要求离开中国前往第三国（地区），目的地不能是中国内地")]
+                          message="过境免签要求离开中国前往第三国（地区），目的地不能是中国内地",
+                          en="Transit means leaving China for a third country or region. "
+                             "Your next stop can't be mainland China.")]
         if trip.destination == trip.origin:
             return [Issue(rule="R2", level="block", subject=trip.destination,
-                          message=f"从{trip.origin}来、又回{trip.destination}，不属于前往第三国（地区）的过境")]
+                          message=f"从{trip.origin}来、又回{trip.destination}，不属于前往第三国（地区）的过境",
+                          en="You're flying back to the country you came from. That isn't transit: the 240-hour rule "
+                             "requires an onward ticket to a third country or region.")]
         if trip.destination in HK_MO_TW or trip.origin in HK_MO_TW:
             return [Issue(rule="R2", level="warn", subject=trip.destination,
-                          message="经香港、澳门、台湾往来是否按“第三地区”认定，官方原文未写明，请向 12367 确认")]
+                          message="经香港、澳门、台湾往来是否按“第三地区”认定，官方原文未写明，请向 12367 确认",
+                          en="The official notice doesn't say whether Hong Kong, Macao or Taiwan count as a "
+                             "\"third region\". Please confirm with the immigration hotline 12367.")]
         return []
 
     def _check_ports(self, trip: Trip) -> list[Issue]:
@@ -209,19 +231,24 @@ class Rules:
         entry = self.find_port(trip.entry_port)
         if entry is None:
             issues.append(Issue(rule="R4", level="block", subject=trip.entry_port,
-                                message=f"{trip.entry_port}不是过境免签适用口岸，不能免签入境"))
+                                message=f"{trip.entry_port}不是过境免签适用口岸，不能免签入境",
+                                en=f"{trip.entry_port} is not one of the ports where visa-free transit entry is allowed."))
         elif not entry.verified:
             issues.append(Issue(rule="R4", level="warn", subject=entry.name,
-                                message=f"{entry.name}是否为适用口岸尚未找到官方名单，请向 12367 确认"))
+                                message=f"{entry.name}是否为适用口岸尚未找到官方名单，请向 12367 确认",
+                                en=f"We couldn't find {entry.name} on an official port list yet. Please confirm with 12367."))
         if trip.exit_port:
             exit_ = self.find_port(trip.exit_port)
             if exit_ is None:
                 issues.append(Issue(rule="R7", level="block", subject=trip.exit_port,
-                                    message=f"{trip.exit_port}不在过境免签适用口岸名单内，请改从名单内口岸离境"))
+                                    message=f"{trip.exit_port}不在过境免签适用口岸名单内，请改从名单内口岸离境",
+                                    en=f"{trip.exit_port} is not an eligible exit port. Leave from an airport on the list."))
             elif not exit_.verified or exit_.province == "广东":
                 # 广东“全省对外开放口岸均可离境”只见于南航汇总表；待核实口岸同样提示
                 issues.append(Issue(rule="R7", level="warn", subject=exit_.name,
-                                    message=f"从{exit_.name}离境的规定尚未在官方原文中核实，请向 12367 确认"))
+                                    message=f"从{exit_.name}离境的规定尚未在官方原文中核实，请向 12367 确认",
+                                    en=f"We haven't verified the exit rule for {exit_.name} in the official text. "
+                                       "Please confirm with 12367."))
         return issues
 
 
@@ -233,6 +260,11 @@ def default_rules() -> Rules:
 def _fmt_duration(d: dt.timedelta) -> str:
     hours, rem = divmod(int(d.total_seconds()) // 60, 60)
     return f"{hours} 小时 {rem} 分钟" if hours else f"{rem} 分钟"
+
+
+def _fmt_duration_en(d: dt.timedelta) -> str:
+    hours, rem = divmod(int(d.total_seconds()) // 60, 60)
+    return f"{hours} h {rem} min" if hours else f"{rem} min"
 
 
 def _port_key(name: str) -> str:

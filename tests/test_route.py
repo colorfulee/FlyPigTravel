@@ -109,6 +109,7 @@ def test_full_us_itinerary():
     it = plan()
     assert it.skipped == ["九寨沟"]
     assert [c.name for c in it.cities] == ["上海", "杭州", "成都"]
+    assert [c.name_en for c in it.cities] == ["Shanghai", "Hangzhou", "Chengdu"]
     assert [c.arrive for c in it.cities] == [dt.date(2026, 10, 26), dt.date(2026, 10, 29), dt.date(2026, 11, 1)]
     assert sum(c.nights for c in it.cities) == 9  # 10-26 → 11-04
     assert [x.no for x in it.legs] == ["G245", "3U8918"]  # 08:00 前的车不要；9 小时高铁输给 12:25 到的航班
@@ -219,3 +220,44 @@ def test_allocate_too_few_nights_warns():
 
 def test_short_city():
     assert short_city("大理白族自治州") == "大理" and short_city("杭州市") == "杭州" and short_city("北京市") == "北京"
+
+
+def test_every_issue_has_english():
+    """页面给外国游客看：任何提示都必须有英文。"""
+    fly = FakeFly(US_FLY, fail={("火车", "上海", "杭州"), ("航班", "上海", "杭州")})
+    for reply in ({}, {"destination": "美国"}, {"exit_date": "2026-11-09"}, {"destination": "香港"},
+                  {"purpose": "工作"}, {"entry_port": "广深港高铁西九龙站口岸", "exit_port": "上海虹桥站"},
+                  {"nationality": "德国"}, {"nationality": "印度"},
+                  {"places": [{"text": "a", "zh": "某小众民宿"}] + US["places"]}):
+        it = plan(reply, fly)
+        a_issues = it.verdict.issues if it.verdict else []
+        for i in a_issues + it.issues:
+            assert i.en and not any("\u4e00" <= ch <= "\u9fff" for ch in i.en.replace(i.subject, "")), (reply, i)
+
+
+def test_same_port_in_and_out_returns_to_entry_city():
+    it = plan({"entry_port": "上海浦东国际机场", "exit_port": "上海浦东国际机场", "destination_city": None,
+               "places": [{"text": "Hangzhou", "zh": "杭州"}]}, FakeFly({}))
+    assert [c.name for c in it.cities] == ["上海", "杭州", "上海"]
+
+
+def test_hopeless_trip_skips_exit_flight_search():
+    fly = FakeFly(US_FLY)
+    it = plan({"destination": "美国", "destination_city": "洛杉矶"}, fly)
+    assert all(c[0] != "航班" or c[2] != "洛杉矶" for c in fly.calls) and it.exit_leg is None
+
+
+def test_flyai_error_on_exit_flight_reads_as_not_found():
+    it = plan(fly=FakeFly(US_FLY, fail={("航班", "成都", "首尔")}))
+    [i] = [i for i in it.issues if i.rule == "交通"]
+    assert "No flight to Seoul" in i.en
+
+
+def test_exit_airport_note_dropped_once_flight_chosen():
+    geo = fake_geo()
+    a = assess(FakeLLM({**US, "exit_city": "上海"}), geo, TEXT, TODAY)
+    assert any(x.startswith("离境机场") for x in a.request.assumptions)
+    it = plan_route(a, FakeFly(US_FLY), geo)
+    assert it.exit_leg is not None
+    assert not any(x.startswith("离境机场") for x in a.request.assumptions)
+    assert len(a.request.assumptions) == len(a.request.assumptions_en)

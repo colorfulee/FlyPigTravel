@@ -31,8 +31,38 @@ CITY_SHORT = {
 }
 
 
+# 页面英文显示；不在表里的城市显示中文名
+CITY_EN = {
+    "北京": "Beijing", "天津": "Tianjin", "上海": "Shanghai", "重庆": "Chongqing", "石家庄": "Shijiazhuang",
+    "秦皇岛": "Qinhuangdao", "承德": "Chengde", "沈阳": "Shenyang", "大连": "Dalian", "哈尔滨": "Harbin",
+    "南京": "Nanjing", "苏州": "Suzhou", "无锡": "Wuxi", "扬州": "Yangzhou", "常州": "Changzhou",
+    "杭州": "Hangzhou", "宁波": "Ningbo", "温州": "Wenzhou", "绍兴": "Shaoxing", "嘉兴": "Jiaxing", "舟山": "Zhoushan",
+    "金华": "Jinhua", "合肥": "Hefei", "黄山": "Huangshan", "福州": "Fuzhou", "厦门": "Xiamen", "泉州": "Quanzhou",
+    "南平": "Nanping", "南昌": "Nanchang", "景德镇": "Jingdezhen", "济南": "Jinan", "青岛": "Qingdao",
+    "泰安": "Tai'an", "曲阜": "Qufu", "济宁": "Jining", "烟台": "Yantai", "威海": "Weihai", "郑州": "Zhengzhou",
+    "洛阳": "Luoyang", "开封": "Kaifeng", "武汉": "Wuhan", "宜昌": "Yichang", "长沙": "Changsha",
+    "张家界": "Zhangjiajie", "广州": "Guangzhou", "深圳": "Shenzhen", "珠海": "Zhuhai", "佛山": "Foshan",
+    "南宁": "Nanning", "桂林": "Guilin", "北海": "Beihai", "海口": "Haikou", "三亚": "Sanya", "成都": "Chengdu",
+    "乐山": "Leshan", "宜宾": "Yibin", "贵阳": "Guiyang", "安顺": "Anshun", "昆明": "Kunming", "大理": "Dali",
+    "丽江": "Lijiang", "西双版纳": "Xishuangbanna", "西安": "Xi'an", "咸阳": "Xianyang", "太原": "Taiyuan",
+    "大同": "Datong", "迪庆": "Diqing", "阿坝": "Aba",
+    # 常见离境目的地
+    "首尔": "Seoul", "东京": "Tokyo", "大阪": "Osaka", "新加坡": "Singapore", "曼谷": "Bangkok", "香港": "Hong Kong",
+    "澳门": "Macao", "台北": "Taipei", "吉隆坡": "Kuala Lumpur", "雅加达": "Jakarta", "巴厘岛": "Bali",
+    "河内": "Hanoi", "胡志明市": "Ho Chi Minh City", "比什凯克": "Bishkek", "迪拜": "Dubai", "多哈": "Doha",
+    "伦敦": "London", "巴黎": "Paris", "法兰克福": "Frankfurt", "莫斯科": "Moscow", "悉尼": "Sydney",
+    "洛杉矶": "Los Angeles", "旧金山": "San Francisco", "纽约": "New York", "温哥华": "Vancouver",
+    "墨西哥城": "Mexico City",
+}
+
+
+def en(name: str) -> str:
+    return CITY_EN.get(name, name)
+
+
 class CityPlan(BaseModel):
     name: str  # 简称，如“杭州”
+    name_en: str = ""
     province: str
     city: str
     lat: float | None = None
@@ -82,7 +112,9 @@ def plan_route(a: Assessment, fly: FlyaiClient, geo: Geocoder, rules: Rules | No
         last_day = (verdict.deadline - dt.timedelta(minutes=1)).date()
         if target_exit > last_day:  # 还没订票：直接按最后可离境日排，而不是排一份超期的行程
             out.issues.append(Issue(rule="R5", level="info", subject=f"{target_exit:%m-%d}",
-                                    message=f"原定 {target_exit:%m-%d} 离境会超出 240 小时，已改为 {last_day:%m-%d} 离境"))
+                                    message=f"原定 {target_exit:%m-%d} 离境会超出 240 小时，已改为 {last_day:%m-%d} 离境",
+                                    en=f"Leaving on {target_exit:%b %d} would exceed 240 hours, so we planned your "
+                                       f"departure for {last_day:%b %d} instead."))
             target_exit = last_day
     if target_exit:
         total = (target_exit - entry_date).days
@@ -110,15 +142,18 @@ def plan_route(a: Assessment, fly: FlyaiClient, geo: Geocoder, rules: Rules | No
         out.legs.append(leg)
 
     exit_port, exit_time = req.exit_port, req.exit_time
+    # 国籍、下一站、口岸、事由这类问题与日期无关，排什么航班都救不回来，不浪费一次查询
+    hopeless = any(i.level == "block" and i.rule in ("R2", "R4", "R8") for i in verdict.issues)
     if req.exit_time_known:
         out.exit_leg_booked = True
-    elif req.destination_city and verdict.deadline:
+    elif req.destination_city and verdict.deadline and not hopeless:
         last_arrival = next((x.arr_time for x in reversed(out.legs) if x and x.arr_time.date() == exit_date), None)
         earliest = max(dt.datetime.combine(exit_date, EXIT_EARLIEST),
                        last_arrival + LANDING_BUFFER if last_arrival else dt.datetime.min)
         leg = _exit_flight(fly, rules, order[-1].name, req.destination_city, earliest, verdict, out)
         if leg:
             out.exit_leg, exit_port, exit_time = leg, leg.dep_code or leg.dep_station, leg.dep_time
+            _drop_exit_airport_note(req)
 
     out.verdict = rules.check(Trip(
         nationality=req.nationality, origin=req.origin or req.nationality, destination=req.destination or "",
@@ -129,13 +164,21 @@ def plan_route(a: Assessment, fly: FlyaiClient, geo: Geocoder, rules: Rules | No
     return out
 
 
+def _drop_exit_airport_note(req) -> None:
+    """已经替用户选好离境航班，“离境机场尚未确定”的说明就过时了。"""
+    keep = [i for i, zh in enumerate(req.assumptions) if not zh.startswith("离境机场")]
+    req.assumptions = [req.assumptions[i] for i in keep]
+    req.assumptions_en = [req.assumptions_en[i] for i in keep]
+
+
 def _group_cities(stops) -> list[CityPlan]:
     by_key: dict[tuple[str, str], CityPlan] = {}
     for s in stops:
         p = s.place
         key = (p.province, p.city or p.province)
         if key not in by_key:
-            by_key[key] = CityPlan(name=short_city(key[1]), province=key[0], city=key[1], lat=p.lat, lng=p.lng)
+            by_key[key] = CityPlan(name=short_city(key[1]), name_en=CITY_EN.get(short_city(key[1]), ""),
+                                   province=key[0], city=key[1], lat=p.lat, lng=p.lng)
         c = by_key[key]
         # 用户写的城市本身（如“杭州”）不算一个要去的地点，但它让这座城至少住 1 晚
         if s.ask.zh != c.name:
@@ -160,7 +203,8 @@ def _port_city(rules: Rules, geo: Geocoder, port_text: str | None, cities: list[
     if place is None:
         return None
     city = place.city or place.province
-    return CityPlan(name=short_city(city), province=place.province, city=city, lat=place.lat, lng=place.lng)
+    return CityPlan(name=short_city(city), name_en=CITY_EN.get(short_city(city), ""), province=place.province,
+                    city=city, lat=place.lat, lng=place.lng)
 
 
 def _same(a: CityPlan, b: CityPlan) -> bool:
@@ -182,6 +226,8 @@ def _order(start: CityPlan, cities: list[CityPlan], end: CityPlan | None) -> lis
     if end is not None and not _same(end, head):
         tail = next((c for c in rest if _same(c, end)), end)
         rest = [c for c in rest if not _same(c, tail)]
+    elif end is not None and rest:  # 同一口岸进出（广州进、广州出）：最后要回到入境城市
+        tail = CityPlan(**head.model_dump(exclude={"places", "arrive", "nights"}))
     order = [head]
     while rest:
         nxt = min(rest, key=lambda c: _dist(order[-1], c))
@@ -207,7 +253,8 @@ def _allocate_nights(order: list[CityPlan], total: int, issues: list[Issue]) -> 
     stay = [c for c in order if c.places] or order[:1]
     if total < len(stay):
         issues.append(Issue(rule="排程", level="warn",
-                            message=f"{total} 晚要去 {len(stay)} 个城市，行程很赶，建议减少城市"))
+                            message=f"{total} 晚要去 {len(stay)} 个城市，行程很赶，建议减少城市",
+                            en=f"{len(stay)} cities in {total} nights is very tight. Consider dropping a city."))
     base = min(total, len(stay))
     for c in stay[:base]:
         c.nights = 1
@@ -244,7 +291,9 @@ def _best_leg(fly: FlyaiClient, a: str, b: str, earliest: dt.datetime, issues: l
     best = min([x for x in (train, flight) if x], key=lambda x: x.arr_time, default=None)
     if best is None:
         issues.append(Issue(rule="交通", level="warn", subject=f"{a}→{b}",
-                            message=f"{earliest:%m-%d} {a}→{b} 没查到合适的火车或航班，请换一天或手动安排"))
+                            message=f"{earliest:%m-%d} {a}→{b} 没查到合适的火车或航班，请换一天或手动安排",
+                            en=f"No suitable train or flight found for {en(a)} → {en(b)} on {earliest:%b %d}. "
+                               "Try another day or book it yourself."))
     return best, calls
 
 
@@ -255,12 +304,13 @@ def _exit_flight(fly: FlyaiClient, rules: Rules, city: str, dest_city: str, earl
     out.flyai_calls += 1
     try:
         legs = fly.search_flights(city, dest_city, day.isoformat(), earliest.hour)
-    except FlyaiError as e:
-        out.issues.append(Issue(rule="交通", level="warn", message=f"离境航班查询失败：{e}"))
-        return None
+    except FlyaiError:  # 飞猪对没有航线的城市对也报错（如丽江→新加坡），按“没找到”处理
+        legs = []
     allowed = [x for x in legs if (p := rules.find_port(x.dep_code or x.dep_station)) and p.verified]
     leg = pick(allowed, earliest, verdict.deadline)
     if leg is None:
         out.issues.append(Issue(rule="交通", level="warn", subject=f"{city}→{dest_city}",
-                                message=f"{day:%m-%d} 没找到从{city}适用口岸起飞、且在截止时间前的{dest_city}航班"))
+                                message=f"{day:%m-%d} 没找到从{city}适用口岸起飞、且在截止时间前的{dest_city}航班",
+                                en=f"No flight to {en(dest_city)} found on {day:%b %d} from an eligible airport in {en(city)} "
+                                   "before your deadline."))
     return leg
