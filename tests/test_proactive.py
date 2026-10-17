@@ -60,6 +60,11 @@ def test_unilateral_traveler_gets_no_transit_specific_reminders():
     assert "before_trip" not in kinds and "arrival" not in kinds and "clock" in kinds
 
 
+def test_no_reminders_for_trip_that_is_not_allowed():
+    a, it, _ = planned({"destination": "美国"})  # 回出发国
+    assert not it.verdict.ok and build_reminders(a, it) == []
+
+
 def test_no_reminders_without_verdict():
     a, it, _ = planned({"nationality": None})
     assert build_reminders(a, it) == []

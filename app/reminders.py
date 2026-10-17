@@ -25,6 +25,8 @@ def build_reminders(a: Assessment, it: Itinerary) -> list[Reminder]:
     req, v = a.request, it.verdict
     if v is None or v.deadline is None or req.entry_time is None or v.policy == "not_eligible":
         return []
+    if not v.ok:  # 行程本身不允许（如回出发国）：给提醒等于鼓励按这个行程出发
+        return []
     out: list[Reminder] = []
     transit = v.policy == "transit_240h"
     dest = req.destination_city or req.destination or "your next country"

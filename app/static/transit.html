@@ -163,7 +163,7 @@ function busy(on) {
 
 // 按阶段读取：先到的判定结论先显示，行程与替代推荐随后补上
 async function check(text) {
-  busy(true); $("status").innerHTML = "";
+  busy(true); $("status").innerHTML = ""; $("result").classList.add("hidden");  // 不让上一个结果冒充新结果
   let state = null;
   try {
     const r = await fetch("/api/transit/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
@@ -215,10 +215,14 @@ function render(d) {
   else if (v) {
     const n = it.skipped.length, names = it.skipped.map((z) => placeEn[z] || z).join(", ");
     cls = blocks.length ? "bad" : n ? "info" : "ok";
+    const moved = it.issues.find((i) => i.rule === "R5" && i.level === "info");  // 已把离境日提前到截止前
+    if (moved && !blocks.length) cls = "info";
     title = blocks.length ? `Not allowed as planned: ${blocks.length} problem${blocks.length > 1 ? "s" : ""}`
-      : n ? `Works once you skip ${names}` : "Your trip fits the 240-hour visa-free transit rules";
+      : n ? `Works once you skip ${names}` : moved ? "Works if you leave one day earlier"
+      : "Your trip fits the 240-hour visa-free transit rules";
     sub = blocks.length ? "See what to change below."
       : n ? `${names} ${n > 1 ? "are" : "is"} outside the area visa-free visitors may enter, so we planned the route without ${n > 1 ? "them" : "it"}. Everything else below has been checked against the rules.`
+      : moved ? `${moved.en} Everything else below has been checked against the rules.`
       : "Every city, date and airport below has been checked against the rules.";
   }
   $("verdict").className = `verdict ${cls}`;
