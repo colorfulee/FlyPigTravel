@@ -22,6 +22,7 @@ TRAIN_MAX_MINUTES = 360  # 超过 6 小时的火车再比较一下航班
 DAY_START = dt.time(8, 0)  # 换城市当天最早几点出发
 EXIT_EARLIEST = dt.time(10, 0)  # 离境当天最早的航班（留出去机场的时间）
 LANDING_BUFFER = dt.timedelta(hours=2)  # 落地后出关、去车站
+TRANSFER = dt.timedelta(hours=1)  # 同一天连坐两段：下车到再上车至少留 1 小时
 NIGHTS_PER_CITY = 2  # 用户没订离境航班时每城默认住 2 晚
 
 # 自治州名太长，飞猪按城市检索时用简称
@@ -134,7 +135,7 @@ def plan_route(a: Assessment, fly: FlyaiClient, geo: Geocoder, rules: Rules | No
     for i in range(len(order) - 1):
         a_, b = order[i], order[i + 1]
         day = b.arrive if b.arrive else cursor
-        earliest = dt.datetime.combine(day, DAY_START)
+        earliest = _after(dt.datetime.combine(day, DAY_START), out.legs)
         if i == 0 and day == entry_date:
             earliest = max(earliest, req.entry_time + LANDING_BUFFER)
         leg, calls = _best_leg(fly, a_.name, b.name, earliest, out.issues)
@@ -150,7 +151,11 @@ def plan_route(a: Assessment, fly: FlyaiClient, geo: Geocoder, rules: Rules | No
         last_arrival = next((x.arr_time for x in reversed(out.legs) if x and x.arr_time.date() == exit_date), None)
         earliest = max(dt.datetime.combine(exit_date, EXIT_EARLIEST),
                        last_arrival + LANDING_BUFFER if last_arrival else dt.datetime.min)
-        leg = _exit_flight(fly, rules, order[-1].name, req.destination_city, earliest, verdict, out)
+        leg = _exit_flight(fly, rules, order[-1].name, req.destination_city, earliest, verdict, out, report=False)
+        if leg is None:  # 最后一城没有航班（如丽江飞新加坡）：换到行程里最近的有机场的城市再飞
+            leg = _exit_via_hub(fly, rules, order, out, req.destination_city, exit_date, verdict)
+        if leg is None:
+            _report_no_exit_flight(out, order[-1].name, req.destination_city, exit_date)
         if leg:
             out.exit_leg, exit_port, exit_time = leg, leg.dep_code or leg.dep_station, leg.dep_time
             _drop_exit_airport_note(req)
@@ -297,20 +302,57 @@ def _best_leg(fly: FlyaiClient, a: str, b: str, earliest: dt.datetime, issues: l
     return best, calls
 
 
+def _exit_via_hub(fly: FlyaiClient, rules: Rules, order: list[CityPlan], out: Itinerary, dest_city: str,
+                  day: dt.date, verdict: Verdict) -> Leg | None:
+    last = order[-1]
+    hubs = [c for c in order[:-1] if not _same(c, last) and rules.ports_in_city(c.name)]
+    if not hubs:
+        return None
+    hub = min(hubs, key=lambda c: _dist(last, c))
+    to_hub, calls = _best_leg(fly, last.name, hub.name, _after(dt.datetime.combine(day, DAY_START), out.legs), [])
+    out.flyai_calls += calls
+    if to_hub is None:
+        return None
+    earliest = max(dt.datetime.combine(day, EXIT_EARLIEST), to_hub.arr_time + LANDING_BUFFER)
+    leg = _exit_flight(fly, rules, hub.name, dest_city, earliest, verdict, out, report=False)
+    if leg is None:
+        return None
+    order.append(CityPlan(**hub.model_dump(exclude={"places", "arrive", "nights"}), arrive=day))
+    out.legs.append(to_hub)
+    out.issues.append(Issue(rule="交通", level="info", subject=f"{last.name}→{dest_city}",
+                            message=f"{last.name}没有飞{dest_city}的合适航班，改为从{hub.name}离境",
+                            en=f"There's no suitable flight from {en(last.name)} to {en(dest_city)}, "
+                               f"so your route ends in {en(hub.name)} and you fly out from there."))
+    return leg
+
+
+def _after(earliest: dt.datetime, legs: list[Leg | None]) -> dt.datetime:
+    """同一天前一段车还没到，后一段不能更早出发。"""
+    prev = next((x for x in reversed(legs) if x), None)
+    if prev and prev.arr_time.date() == earliest.date():
+        return max(earliest, prev.arr_time + TRANSFER)
+    return earliest
+
+
+def _report_no_exit_flight(out: Itinerary, city: str, dest_city: str, day: dt.date) -> None:
+    out.issues.append(Issue(rule="交通", level="warn", subject=f"{city}→{dest_city}",
+                            message=f"{day:%m-%d} 没找到从{city}适用口岸起飞、且在截止时间前的{dest_city}航班",
+                            en=f"No flight to {en(dest_city)} found on {day:%b %d} from an eligible airport in "
+                               f"{en(city)} before your deadline."))
+
+
 def _exit_flight(fly: FlyaiClient, rules: Rules, city: str, dest_city: str, earliest: dt.datetime,
-                 verdict: Verdict, out: Itinerary) -> Leg | None:
-    """离境航班必须从已核实的适用机场起飞，且在截止时间前。"""
+                 verdict: Verdict, out: Itinerary, report: bool = True) -> Leg | None:
+    """过境免签：离境航班必须从已核实的适用机场起飞；两种政策都要在截止时间前。"""
     day = earliest.date()
     out.flyai_calls += 1
     try:
         legs = fly.search_flights(city, dest_city, day.isoformat(), earliest.hour)
     except FlyaiError:  # 飞猪对没有航线的城市对也报错（如丽江→新加坡），按“没找到”处理
         legs = []
-    allowed = [x for x in legs if (p := rules.find_port(x.dep_code or x.dep_station)) and p.verified]
-    leg = pick(allowed, earliest, verdict.deadline)
-    if leg is None:
-        out.issues.append(Issue(rule="交通", level="warn", subject=f"{city}→{dest_city}",
-                                message=f"{day:%m-%d} 没找到从{city}适用口岸起飞、且在截止时间前的{dest_city}航班",
-                                en=f"No flight to {en(dest_city)} found on {day:%b %d} from an eligible airport in {en(city)} "
-                                   "before your deadline."))
+    if verdict.policy == "transit_240h":
+        legs = [x for x in legs if (p := rules.find_port(x.dep_code or x.dep_station)) and p.verified]
+    leg = pick(legs, earliest, verdict.deadline)
+    if leg is None and report:
+        _report_no_exit_flight(out, city, dest_city, day)
     return leg

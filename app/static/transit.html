@@ -161,13 +161,33 @@ function busy(on) {
   if (on) { let i = 0; $("progress").textContent = STEPS[0]; timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("progress").textContent = STEPS[i]; }, 5000); }
 }
 
+// 按阶段读取：先到的判定结论先显示，行程与替代推荐随后补上
 async function check(text) {
   busy(true); $("status").innerHTML = "";
+  let state = null;
   try {
-    const r = await fetch("/api/transit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.detail || `Request failed (${r.status})`);
-    render(data);
+    const r = await fetch("/api/transit/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!r.ok) { const data = await r.json().catch(() => ({})); throw new Error(data.detail || `Request failed (${r.status})`); }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (ev.stage === "error") throw new Error(ev.detail);
+        if (ev.stage === "done") continue;
+        const { stage, ...body } = ev;
+        state = { ...(state || {}), ...body };
+        render(state);
+        if (stage === "assessment") $("progress").textContent = "Finding trains and flights on Fliggy…";
+      }
+    }
+    if (!state || !state.itinerary) throw new Error("The connection dropped before your route was ready");
   } catch (e) {
     $("status").innerHTML = `<div class="err">${esc(e.message)} <a href="#" id="snap">Show the last saved result</a></div>`;
     $("snap").onclick = async (ev) => { ev.preventDefault(); const r = await fetch("/api/transit/snapshot"); if (r.ok) render(await r.json()); };
@@ -176,7 +196,11 @@ async function check(text) {
 $("go").onclick = () => { const t = $("q").value.trim(); if (t) check(t); else $("q").focus(); };
 
 function render(d) {
-  const a = d.assessment, it = d.itinerary, req = a.request;
+  const a = d.assessment, req = a.request;
+  // 行程还没到：先用判定结果里被区域规则拦下的地点占位
+  const pending = !d.itinerary;
+  const it = d.itinerary || { cities: [], legs: [], issues: [], verdict: null, exit_leg: null, exit_leg_booked: false,
+    skipped: (a.verdict ? a.verdict.issues : []).filter((i) => i.rule === "R6" && i.level === "block").map((i) => i.subject) };
   const v = it.verdict || a.verdict;
   const placeEn = Object.fromEntries(a.stops.map((s) => [s.ask.zh, s.ask.text]));
   const label = (zh) => placeEn[zh] && placeEn[zh] !== zh ? `${esc(placeEn[zh])} <span class="zh">${esc(zh)}</span>` : esc(zh);
@@ -249,27 +273,28 @@ function render(d) {
     $("issues").innerHTML += `<div class="issue"><span class="dot info" style="background:var(--ok)">✓</span><div>Everything else passed all 9 rules.</div></div>`;
 
   // 5. 行程
-  $("planCard").classList.toggle("hidden", !it.cities.length);
+  $("planCard").classList.toggle("hidden", !it.cities.length && !(pending && v && v.policy !== "not_eligible"));
   $("removed").innerHTML = it.skipped.length ? `<div class="muted" style="margin-bottom:6px">Removed (outside the allowed area):</div>${it.skipped.map((z) => `<span>${label(z)}</span>`).join("")}` : "";
   const legHtml = (l, booked) => !l ? `<div class="leg missing">No train or flight found for this hop yet. Try another day.</div>` : `
     <div class="leg">${l.mode === "火车" ? "🚄 Train" : "✈️ Flight"} <span class="no">${esc(l.no)}</span> · ${esc(dur(l.minutes))}${l.transfers ? ` · ${l.transfers} stop` : ""}
       <div>${esc(when(l.dep_time))} <b>${esc(l.dep_station)}</b> → ${esc(parts(l.arr_time).t)} <b>${esc(l.arr_station)}</b></div>
       <div class="row" style="justify-content:space-between;margin-top:2px"><span>${money(l.price)}</span>
       ${safeUrl(l.url) ? `<a class="book" href="${esc(l.url)}" target="_blank" rel="noopener">Book on Fliggy →</a>` : ""}</div></div>`;
-  $("plan").innerHTML = it.cities.map((c, i) => {
+  $("plan").innerHTML = pending ? `<p class="muted">Finding trains and flights on Fliggy…</p>` : it.cities.map((c, i) => {
     const name = c.name_en ? `${esc(c.name_en)} <span class="zh">${esc(c.name)}</span>` : esc(c.name);
     const stay = c.nights ? `${c.nights} night${c.nights > 1 ? "s" : ""}` : (i === 0 ? "arrive & move on" : i === it.cities.length - 1 ? "fly out" : "pass through");
     const places = c.places.filter((p) => p !== c.name);
     return `<div class="stop"><div class="date">${esc(day(c.arrive))}</div><div><div class="city">${name}</div><div class="muted">${stay}</div>
         ${places.map((p) => `<span class="pill">${label(p)}</span>`).join("")}</div></div>` + (i < it.legs.length ? legHtml(it.legs[i]) : "");
-  }).join("") + (it.exit_leg ? `<div class="stop"><div class="date">${esc(day(it.exit_leg.dep_time))}</div><div><div class="city">Leave China</div><div class="muted">Eligible exit airport · before your deadline</div></div></div>${legHtml(it.exit_leg)}`
+  }).join("") + (it.exit_leg ? `<div class="stop"><div class="date">${esc(day(it.exit_leg.dep_time))}</div><div><div class="city">Leave China</div><div class="muted">${v && v.policy === "transit_240h" ? "Eligible exit airport · before your deadline" : "Before your 30-day limit"}</div></div></div>${legHtml(it.exit_leg)}`
     : it.exit_leg_booked ? `<div class="stop"><div class="date">${esc(day(req.exit_time))}</div><div><div class="city">Leave China</div><div class="muted">Your booked departure</div></div></div>` : "");
 
   // 5b. 出界景点的替代推荐（模型推荐、代码已校验在允许区域内）
   const alts = (d.alternatives && d.alternatives.items) || [];
+  const altsPending = !d.alternatives && it.skipped.length;
   const byPlace = {};
   alts.forEach((x) => (byPlace[x.for_place] = byPlace[x.for_place] || []).push(x));
-  $("alts").innerHTML = Object.entries(byPlace).map(([src, xs]) => `<div class="muted" style="margin-top:10px">Instead of ${label(src)}, try (all checked to be inside the allowed area):</div>` +
+  $("alts").innerHTML = altsPending ? `<p class="muted">Looking for similar places you're allowed to visit…</p>` : Object.entries(byPlace).map(([src, xs]) => `<div class="muted" style="margin-top:10px">Instead of ${label(src)}, try (all checked to be inside the allowed area):</div>` +
     xs.map((x) => `<div class="alt"><div class="name">${esc(x.en)} <span class="zh">${esc(x.zh)}</span></div>
       <div class="muted">${x.km != null ? `About ${x.km} km from ${esc(x.near_city_en || x.near_city)}` : esc(x.city)}</div>
       <div>${esc(x.why)}</div><button type="button" class="chip" data-add="${esc(x.en)}" data-zh="${esc(x.zh)}">+ Add to my trip</button></div>`).join("")).join("");

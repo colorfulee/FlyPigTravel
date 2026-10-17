@@ -4,7 +4,7 @@ import hashlib
 import json
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -111,31 +111,81 @@ def transit_page():
     return FileResponse(STATIC / "transit.html")
 
 
-@app.post("/api/transit", response_model=TransitResponse)
-def api_transit(req: PlanRequest):
+def _check_text(req: PlanRequest) -> str:
     text = req.text.strip()
     if not text:
         raise HTTPException(400, "Tell us about your trip")
     if len(text) > 2000:
         raise HTTPException(413, "Please keep it under 2000 characters")
-    try:
-        model = llm()
-        a = assess(model, geo, text, dt.date.today())
+    return text
+
+
+def _transit_stages(text: str):
+    """依次产出 (阶段名, 数据)：先给判定结论（约 15 秒），再给行程与替代推荐（两者并行）。"""
+    model = llm()
+    a = assess(model, geo, text, dt.date.today())
+    yield "assessment", a
+    with ThreadPoolExecutor(max_workers=2) as pool:
         # 替代推荐（一次百炼调用）和查火车航班（飞猪）互不依赖，并行省 10-20 秒
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            alts = pool.submit(suggest, model, geo, a)
-            it = plan_route(a, fly, geo)
-            reminders = build_reminders(a, it)
-            result = TransitResponse(assessment=a, itinerary=it, reminders=reminders, alternatives=alts.result(),
-                                     ics=to_ics(reminders) if reminders else "")
-    except LLMError as e:
-        raise HTTPException(502, f"Our AI service is busy, please try again ({e})") from e
-    # 每个需求单独存一份：演示兜底，也供离线预览页录制
+        alts = pool.submit(suggest, model, geo, a)
+        it = plan_route(a, fly, geo)
+        reminders = build_reminders(a, it)
+        yield "itinerary", (it, reminders)
+        yield "alternatives", alts.result()
+
+
+def _save_snapshot(text: str, result: TransitResponse) -> None:
+    """每个需求单独存一份：演示兜底，也供离线预览页录制。"""
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(text.encode()).hexdigest()[:12]
     for name in (f"transit-{key}.json", "transit-last.json"):
         (SNAPSHOT_DIR / name).write_text(result.model_dump_json(), encoding="utf-8")
+
+
+def _collect(stages) -> TransitResponse:
+    got = dict(stages)
+    it, reminders = got["itinerary"]
+    return TransitResponse(assessment=got["assessment"], itinerary=it, reminders=reminders,
+                           alternatives=got["alternatives"], ics=to_ics(reminders) if reminders else "")
+
+
+@app.post("/api/transit", response_model=TransitResponse)
+def api_transit(req: PlanRequest):
+    text = _check_text(req)
+    try:
+        result = _collect(_transit_stages(text))
+    except LLMError as e:
+        raise HTTPException(502, f"Our AI service is busy, please try again ({e})") from e
+    _save_snapshot(text, result)
     return result
+
+
+@app.post("/api/transit/stream")
+def api_transit_stream(req: PlanRequest):
+    """同样的结果按阶段推送（每行一个 JSON），页面先显示结论，不必干等 30 秒。"""
+    text = _check_text(req)
+
+    def events():
+        got = []
+        try:
+            for stage, data in _transit_stages(text):
+                got.append((stage, data))
+                if stage == "itinerary":
+                    it, reminders = data
+                    body = {"itinerary": it.model_dump(mode="json"),
+                            "reminders": [r.model_dump(mode="json") for r in reminders],
+                            "ics": to_ics(reminders) if reminders else ""}
+                else:
+                    body = {stage: data.model_dump(mode="json")}
+                yield json.dumps({"stage": stage, **body}, ensure_ascii=False) + "\n"
+            _save_snapshot(text, _collect(got))
+            yield json.dumps({"stage": "done"}) + "\n"
+        except (LLMError, FlyaiError, HTTPException) as e:
+            detail = getattr(e, "detail", None) or str(e)
+            yield json.dumps({"stage": "error", "detail": f"Our AI service is busy, please try again ({detail})"},
+                             ensure_ascii=False) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 
 @app.get("/api/transit/snapshot", response_model=TransitResponse)

@@ -261,3 +261,64 @@ def test_exit_airport_note_dropped_once_flight_chosen():
     assert it.exit_leg is not None
     assert not any(x.startswith("离境机场") for x in a.request.assumptions)
     assert len(a.request.assumptions) == len(a.request.assumptions_en)
+
+
+YN_POIS = {
+    "昆明长水国际机场": [poi("昆明长水国际机场", "云南省", "昆明市", 102.93, 25.10, "交通设施服务")],
+    "昆明": [poi("昆明市", "云南省", "昆明市", 102.83, 24.88, "地名地址信息")],
+    "丽江": [poi("丽江市", "云南省", "丽江市", 100.23, 26.87, "地名地址信息")],
+}
+YN = {"entry_port": "昆明长水国际机场", "exit_port": None, "destination": "新加坡", "destination_city": "新加坡",
+      "origin": "泰国", "entry_date": "2026-11-02", "exit_date": "2026-11-08",
+      "places": [{"text": "Kunming", "zh": "昆明"}, {"text": "Lijiang", "zh": "丽江"}]}
+
+
+def test_exit_via_nearest_hub_when_last_city_has_no_flight():
+    POIS.update(YN_POIS)
+    fly = FakeFly({("火车", "昆明", "丽江"): [leg("C1", D(2026, 11, 5, 8, 30), D(2026, 11, 5, 11, 50))],
+                   ("火车", "丽江", "昆明"): [leg("C2", D(2026, 11, 8, 8, 10), D(2026, 11, 8, 11, 30))],
+                   ("航班", "昆明", "新加坡"): [
+                       leg("TOO_EARLY", D(2026, 11, 8, 12, 0), D(2026, 11, 8, 16, 0), "航班", "KMG"),  # 赶不上
+                       leg("MU5", D(2026, 11, 8, 14, 0), D(2026, 11, 8, 18, 0), "航班", "KMG")]},
+                  fail={("航班", "丽江", "新加坡")})
+    it = plan(YN, fly)
+    assert [c.name for c in it.cities] == ["昆明", "丽江", "昆明"]
+    assert [x.no for x in it.legs] == ["C1", "C2"] and it.exit_leg.no == "MU5"  # 11:30 到昆明 + 2 小时
+    assert it.cities[-1].arrive == dt.date(2026, 11, 8) and it.cities[-1].nights == 0
+    assert any(i.level == "info" and "fly out from there" in i.en for i in it.issues)
+    assert not any(i.level == "warn" and i.rule == "交通" for i in it.issues)
+    assert it.verdict.ok
+
+
+def test_no_hub_flight_reports_once():
+    POIS.update(YN_POIS)
+    it = plan(YN, FakeFly({("火车", "昆明", "丽江"): [leg("C1", D(2026, 11, 5, 8, 30), D(2026, 11, 5, 11, 50))]}))
+    warns = [i for i in it.issues if i.rule == "交通" and i.level == "warn"]
+    assert len(warns) == 1 and "Lijiang" in warns[0].en
+
+
+def test_unilateral_traveler_may_fly_out_of_any_airport():
+    POIS.update(YN_POIS)
+    fly = FakeFly({("火车", "昆明", "丽江"): [leg("C1", D(2026, 11, 5, 8, 30), D(2026, 11, 5, 11, 50))],
+                   ("航班", "丽江", "新加坡"): [leg("X1", D(2026, 11, 8, 13, 0), D(2026, 11, 8, 19, 0), "航班", "ABC")]})
+    assert plan({**YN, "nationality": "德国"}, fly).exit_leg.no == "X1"  # 30 天免签不限口岸
+    assert plan(YN, fly).exit_leg is None  # 美国人过境免签：ABC 不是适用口岸
+
+
+def test_same_day_second_leg_waits_for_first():
+    """实测：迪庆 10:57 到丽江，当天去昆明却排了 08:08 的车。后一段必须在前一段到达 1 小时后。"""
+    POIS.update(YN_POIS)
+    POIS["香格里拉"] = [poi("香格里拉市", "云南省", "迪庆藏族自治州", 99.70, 27.82, "地名地址信息")]
+    fly = FakeFly({("火车", "昆明", "丽江"): [leg("C1", D(2026, 11, 4, 8, 30), D(2026, 11, 4, 11, 50))],
+                   ("火车", "丽江", "迪庆"): [leg("D1", D(2026, 11, 6, 9, 0), D(2026, 11, 6, 10, 20))],
+                   ("火车", "迪庆", "丽江"): [leg("D240", D(2026, 11, 8, 9, 36), D(2026, 11, 8, 10, 57))],
+                   ("火车", "丽江", "昆明"): [leg("C452", D(2026, 11, 8, 8, 8), D(2026, 11, 8, 12, 2)),
+                                          leg("C7", D(2026, 11, 8, 12, 30), D(2026, 11, 8, 16, 0))],
+                   ("航班", "昆明", "新加坡"): [leg("MU9", D(2026, 11, 8, 21, 40), D(2026, 11, 9, 1, 0), "航班", "KMG")]},
+                  fail={("航班", "丽江", "新加坡")})
+    it = plan({**YN, "nationality": "德国", "places": [{"text": "Kunming", "zh": "昆明"}, {"text": "Lijiang", "zh": "丽江"},
+                                                       {"text": "Shangri-La", "zh": "香格里拉"}]}, fly)
+    assert [c.name for c in it.cities] == ["昆明", "丽江", "迪庆", "丽江", "昆明"]
+    assert [x.no for x in it.legs] == ["C1", "D1", "D240", "C7"] and it.exit_leg.no == "MU9"
+    for a, b in zip(it.legs, it.legs[1:]):
+        assert b.dep_time >= a.arr_time
