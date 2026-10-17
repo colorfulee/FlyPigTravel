@@ -65,6 +65,15 @@
   .removed span { display: inline-block; font-size: 13px; text-decoration: line-through; color: var(--bad); margin-right: 10px; }
   .ask input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; margin-top: 4px; }
   .ask label { display: block; margin-top: 10px; font-weight: 600; font-size: 14px; }
+  .alt { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+  .alt .name { font-weight: 700; }
+  .alt button { margin-top: 6px; }
+  .rem { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
+  .rem:first-child { border-top: 0; }
+  .rem .t { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .rem .t small { display: block; font-weight: 400; color: var(--muted); }
+  .rem .title { font-weight: 600; }
+  .rem.k-deadline .title, .rem.k-area .title { color: var(--bad); }
   .err { background: var(--bad-soft); border: 1px solid #fecdca; border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-size: 14px; }
   footer { text-align: center; margin-top: 24px; }
   footer a { color: var(--muted); }
@@ -91,7 +100,13 @@
     <section class="card" id="askCard"></section>
     <section class="card" id="clockCard"></section>
     <section class="card" id="issuesCard"><h2>What we checked</h2><div id="issues"></div></section>
-    <section class="card" id="planCard"><h2>Your route</h2><div id="removed" class="removed"></div><div id="plan"></div></section>
+    <section class="card" id="planCard"><h2>Your route</h2><div id="removed" class="removed"></div><div id="alts"></div><div id="plan"></div></section>
+    <section class="card" id="remindCard">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">We'll remind you</h2>
+        <button class="chip" id="ics" type="button">📅 Add all to my calendar</button></div>
+      <p class="muted" style="margin:6px 0 4px">Your phone calendar will alert you at each moment. Chinese lines are for showing drivers and staff.</p>
+      <div id="reminders"></div>
+    </section>
     <section class="card" id="notesCard"><h2>We assumed</h2><ul id="notes" class="muted" style="margin:0;padding-left:18px"></ul></section>
   </div>
 
@@ -249,6 +264,30 @@ function render(d) {
         ${places.map((p) => `<span class="pill">${label(p)}</span>`).join("")}</div></div>` + (i < it.legs.length ? legHtml(it.legs[i]) : "");
   }).join("") + (it.exit_leg ? `<div class="stop"><div class="date">${esc(day(it.exit_leg.dep_time))}</div><div><div class="city">Leave China</div><div class="muted">Eligible exit airport · before your deadline</div></div></div>${legHtml(it.exit_leg)}`
     : it.exit_leg_booked ? `<div class="stop"><div class="date">${esc(day(req.exit_time))}</div><div><div class="city">Leave China</div><div class="muted">Your booked departure</div></div></div>` : "");
+
+  // 5b. 出界景点的替代推荐（模型推荐、代码已校验在允许区域内）
+  const alts = (d.alternatives && d.alternatives.items) || [];
+  const byPlace = {};
+  alts.forEach((x) => (byPlace[x.for_place] = byPlace[x.for_place] || []).push(x));
+  $("alts").innerHTML = Object.entries(byPlace).map(([src, xs]) => `<div class="muted" style="margin-top:10px">Instead of ${label(src)}, try (all checked to be inside the allowed area):</div>` +
+    xs.map((x) => `<div class="alt"><div class="name">${esc(x.en)} <span class="zh">${esc(x.zh)}</span></div>
+      <div class="muted">${x.km != null ? `About ${x.km} km from ${esc(x.near_city_en || x.near_city)}` : esc(x.city)}</div>
+      <div>${esc(x.why)}</div><button type="button" class="chip" data-add="${esc(x.en)}" data-zh="${esc(x.zh)}">+ Add to my trip</button></div>`).join("")).join("");
+  $("alts").onclick = (ev) => {
+    const b = ev.target.closest("[data-add]"); if (!b) return;
+    $("q").value = `${$("q").value.trim()} Also add ${b.dataset.add} (${b.dataset.zh}).`; check($("q").value);
+  };
+
+  // 5c. 主动提醒
+  const rems = d.reminders || [];
+  $("remindCard").classList.toggle("hidden", !rems.length);
+  $("reminders").innerHTML = rems.map((r) => `<div class="rem k-${esc(r.kind)}"><div class="t">${esc(day(r.at))}<small>${esc(parts(r.at).t)}</small></div>
+    <div><div class="title">${esc(r.title)}</div><div>${esc(r.body)}</div>${r.zh ? `<div class="zh">${esc(r.zh)}</div>` : ""}</div></div>`).join("");
+  $("ics").onclick = () => {
+    const url = URL.createObjectURL(new Blob([d.ics], { type: "text/calendar" }));
+    const link = Object.assign(document.createElement("a"), { href: url, download: "china-trip-reminders.ics" });
+    document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   // 6. 假设
   $("notesCard").classList.toggle("hidden", !req.assumptions_en.length);

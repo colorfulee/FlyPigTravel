@@ -1,4 +1,5 @@
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 
@@ -12,6 +13,8 @@ from .flyai import FlyaiClient, FlyaiError
 from .geo import Geocoder
 from .llm import Bailian, LLMError
 from .pipeline import plan, read_screenshot
+from .alternatives import AlternativeSet, suggest
+from .reminders import Reminder, build_reminders, to_ics
 from .route import Itinerary, plan_route
 from .schemas import PlanResponse
 from .travelmate import Assessment, assess
@@ -98,6 +101,9 @@ def api_screenshot(req: ScreenshotRequest):
 class TransitResponse(BaseModel):
     assessment: Assessment
     itinerary: Itinerary
+    reminders: list[Reminder] = []
+    alternatives: AlternativeSet = AlternativeSet()
+    ics: str = ""  # 提醒的日历文件，页面一键下载
 
 
 @app.get("/transit")
@@ -113,8 +119,15 @@ def api_transit(req: PlanRequest):
     if len(text) > 2000:
         raise HTTPException(413, "Please keep it under 2000 characters")
     try:
-        a = assess(llm(), geo, text, dt.date.today())
-        result = TransitResponse(assessment=a, itinerary=plan_route(a, fly, geo))
+        model = llm()
+        a = assess(model, geo, text, dt.date.today())
+        # 替代推荐（一次百炼调用）和查火车航班（飞猪）互不依赖，并行省 10-20 秒
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            alts = pool.submit(suggest, model, geo, a)
+            it = plan_route(a, fly, geo)
+            reminders = build_reminders(a, it)
+            result = TransitResponse(assessment=a, itinerary=it, reminders=reminders, alternatives=alts.result(),
+                                     ics=to_ics(reminders) if reminders else "")
     except LLMError as e:
         raise HTTPException(502, f"Our AI service is busy, please try again ({e})") from e
     # 每个需求单独存一份：演示兜底，也供离线预览页录制
