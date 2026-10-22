@@ -1,4 +1,34 @@
-# 住进去 · 高品质酒店入住旅程设计师
+# TravelMate · 240 小时过境免签行程规划助手
+
+> 2026 飞猪 AI 旅行创新大赛参赛作品 · 命题方向：入境游助手 · 参赛说明见 [docs/SUBMISSION.md](docs/SUBMISSION.md)
+
+外国游客用英文说一句话，或者上传机票截图，TravelMate 会按移民局的 240 小时过境免签规则核对这段中国行程：
+判断适用哪项政策；把不在允许区域的景点移出行程，并推荐区域内的替代；
+用飞猪实时数据排出高铁和航班，选一班从适用口岸、在截止时间前离境的航班；
+最后按行程时间线生成主动提醒，可以一键导入手机日历。
+
+```
+英文一句话 + 机票截图（可选）
+  ├─ 百炼 qwen-plus：解析国籍、来去国家、口岸、时刻、想去的地方（英文 → 中文）
+  └─ 百炼 qwen3-vl-plus：读出每段航班 → 代码判定入境段 / 离境段 / 真实出发地          （并行）
+       └─ 高德：每个地点 → 省 / 市
+            └─ 规则引擎 R1–R9（data/transit_240h.json，出自移民局公告）→ 先推送结论
+                 ├─ 飞猪 search-train / search-flight：按城市排程 + 离境航班 → 整份行程再判一次
+                 └─ 百炼 qwen-plus：出界景点的同类替代 → 代码定位并校验区域、距离        （并行）
+                      └─ 主动提醒（.ics）
+```
+
+运行（配置同下文“本地运行”，需要 `AMAP_KEY`）：`.venv/bin/uvicorn app.main:app --port 8000`，打开 http://localhost:8000/transit 。
+
+- 规则表与出处：[docs/travelmate/240小时过境免签规则表.md](docs/travelmate/240小时过境免签规则表.md)
+- 演示剧本：[docs/travelmate/演示剧本.md](docs/travelmate/演示剧本.md)
+- 离线预览（真实结果录制）：`python scripts/build_transit_preview.py`，生成 `preview_transit/preview.html`
+- 全链路实测：`python scripts/probe_route.py "I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm ..."`
+- 单测：`.venv/bin/pytest`（规则引擎、解析、排程、提醒、识图、接口，不联网）
+
+---
+
+# 另一个页面：住进去 · 高品质酒店入住旅程设计师
 
 > 2026 飞猪 AI 旅行创新大赛参赛作品 · 命题方向：高品质酒店 staycation
 

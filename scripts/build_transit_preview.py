@@ -66,7 +66,7 @@ html = html.replace("  * { box-sizing: border-box; }",
                     "  .demo { background: var(--info-soft); border: 1px solid #b2ddff; border-radius: 12px; padding: 10px 12px; "
                     "font-size: 13px; margin-top: 12px; }")
 html = html.replace("  <section class=\"card\">\n    <label for=\"q\"",
-                    f'  <div class="demo"><b>Demo</b>: tap one of the four trips below. Every result was produced on '
+                    f'  <div class="demo"><b>Demo</b>: tap one of the {len(examples)} trips below. Every result was produced on '
                     f'{dt.date.today():%b %d, %Y} by the real service: Alibaba Cloud Bailian (qwen-plus) for understanding, '
                     'live Fliggy trains and flights, Amap for locations, and a rule engine built from China\'s official '
                     'visa-free notices. Nothing was edited by hand. This demo can\'t check new trips; run the service '
@@ -89,7 +89,7 @@ window.fetch = async (url, opts = {}) => {
   if (url === "/api/transit/stream") {
     const text = JSON.parse(opts.body || "{}").text;
     const hit = DEMO.find((c) => c.text === text);
-    if (!hit) return ndjson([{ stage: "error", detail: "This demo only includes the five trips above. Tap one of them, or run the service locally to check your own trip." }], [600]);
+    if (!hit) return ndjson([{ stage: "error", detail: "This demo only includes the %d trips above. Tap one of them, or run the service locally to check your own trip." }], [600]);
     const r = hit.result; lastDemo = r;
     return ndjson([
       { stage: "assessment", assessment: r.assessment },
@@ -101,7 +101,7 @@ window.fetch = async (url, opts = {}) => {
   return json(404, {});
 };
 </script>
-""" % json.dumps(cases, ensure_ascii=False)
+""" % (json.dumps(cases, ensure_ascii=False), len(examples))
 html = html.replace("<script>\nconst $ =", shim + "<script>\nconst $ =", 1)
 # 预览里点示例直接开始（带截图的示例等图片加载完再开始），并默认展示第一个
 click_old = """  const imgs = EXAMPLE_IMAGES[+c.dataset.i] || [];
