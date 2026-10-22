@@ -3,7 +3,5 @@
 __pycache__/
 *.pyc
 .cache/
-probe_out/
 .pytest_cache/
-preview_out/
 preview_transit/

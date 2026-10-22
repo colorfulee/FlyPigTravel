@@ -1,30 +1,30 @@
+"""TravelMate：240 小时过境免签行程规划助手的 Web 服务。"""
+
 import datetime as dt
-from zoneinfo import ZoneInfo
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .alternatives import AlternativeSet, suggest
 from .config import ROOT, settings
 from .flyai import FlyaiClient, FlyaiError
 from .geo import Geocoder
 from .llm import Bailian, LLMError
-from .pipeline import plan, read_screenshot
-from .alternatives import AlternativeSet, suggest
 from .reminders import Reminder, build_reminders, to_ics
 from .route import Itinerary, plan_route
-from .schemas import PlanResponse
 from .ticket import MAX_IMAGES
 from .travelmate import Assessment, assess
 
 STATIC = ROOT / "app" / "static"
 SNAPSHOT_DIR = settings.cache_dir / "snapshots"
 
-app = FastAPI(title="住进去 · 高品质酒店入住旅程设计师")
+app = FastAPI(title="TravelMate · 240 小时过境免签行程规划助手")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 fly = FlyaiClient()
@@ -38,22 +38,9 @@ def llm() -> Bailian:
         raise HTTPException(503, str(e)) from e
 
 
-class PlanRequest(BaseModel):
-    text: str = ""
-
-
 class TransitRequest(BaseModel):
     text: str = ""
     images: list[str] = []  # 机票截图（data:image/...;base64,...），最多 2 张
-
-
-class ScreenshotRequest(BaseModel):
-    image: str  # data:image/...;base64,...
-
-
-@app.get("/")
-def index():
-    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/api/health")
@@ -62,47 +49,10 @@ def health():
         "bailian": bool(settings.dashscope_api_key),
         "text_model": settings.text_model,
         "vl_model": settings.vl_model,
-        "flyai_mode": fly.mode,
         "flyai_key": bool(settings.flyai_api_key),
         "amap": geo.enabled,
     }
 
-
-@app.post("/api/plan", response_model=PlanResponse)
-def api_plan(req: PlanRequest):
-    if not req.text.strip():
-        raise HTTPException(400, "请描述你的需求")
-    try:
-        result = plan(llm(), fly, geo, req.text)
-    except (FlyaiError, LLMError) as e:
-        raise HTTPException(502, str(e)) from e
-    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    (SNAPSHOT_DIR / "last.json").write_text(result.model_dump_json(), encoding="utf-8")
-    return result
-
-
-@app.get("/api/snapshot", response_model=PlanResponse)
-def api_snapshot():
-    """演示兜底：返回最近一次成功的真实结果。"""
-    path = SNAPSHOT_DIR / "last.json"
-    if not path.exists():
-        raise HTTPException(404, "还没有成功的规划记录")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-@app.post("/api/screenshot")
-def api_screenshot(req: ScreenshotRequest):
-    if not req.image.startswith("data:image/"):
-        raise HTTPException(400, "请上传图片")
-    if len(req.image) > 8_000_000:
-        raise HTTPException(413, "图片过大，请压缩到 6MB 以内")
-    try:
-        return read_screenshot(llm(), req.image)
-    except LLMError as e:
-        raise HTTPException(502, str(e)) from e
-
-
-# ---------------------------------------------------------------- 入境游客：240 小时过境免签行程
 
 
 class TransitResponse(BaseModel):
@@ -113,7 +63,8 @@ class TransitResponse(BaseModel):
     ics: str = ""  # 提醒的日历文件，页面一键下载
 
 
-@app.get("/transit")
+@app.get("/")
+@app.get("/transit")  # 旧链接仍可用
 def transit_page():
     return FileResponse(STATIC / "transit.html")
 

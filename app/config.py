@@ -18,13 +18,11 @@ class Settings:
     vl_model: str = os.getenv("BAILIAN_VL_MODEL", "qwen3-vl-plus")
 
     flyai_api_key: str = os.getenv("FLYAI_API_KEY", "")
-    flyai_mode: str = os.getenv("FLYAI_MODE", "live")
     flyai_bin: str = os.getenv("FLYAI_BIN", "flyai")
 
     amap_key: str = os.getenv("AMAP_KEY", "")
 
     cache_dir: Path = ROOT / ".cache"
-    fixture_dir: Path = ROOT / "fixtures"
 
 
 settings = Settings()

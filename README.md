@@ -7,6 +7,8 @@
 用飞猪实时数据排出高铁和航班，选一班从适用口岸、在截止时间前离境的航班；
 最后按行程时间线生成主动提醒，可以一键导入手机日历。
 
+## 流程
+
 ```
 英文一句话 + 机票截图（可选）
   ├─ 百炼 qwen-plus：解析国籍、来去国家、口岸、时刻、想去的地方（英文 → 中文）
@@ -18,40 +20,8 @@
                       └─ 主动提醒（.ics）
 ```
 
-运行（配置同下文“本地运行”，需要 `AMAP_KEY`）：`.venv/bin/uvicorn app.main:app --port 8000`，打开 http://localhost:8000/transit 。
-
-- 规则表与出处：[docs/travelmate/240小时过境免签规则表.md](docs/travelmate/240小时过境免签规则表.md)
-- 演示剧本：[docs/travelmate/演示剧本.md](docs/travelmate/演示剧本.md)
-- 离线预览（真实结果录制）：`python scripts/build_transit_preview.py`，生成 `preview_transit/preview.html`
-- 全链路实测：`python scripts/probe_route.py "I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm ..."`
-- 单测：`.venv/bin/pytest`（规则引擎、解析、排程、提醒、识图、接口，不联网）
-
----
-
-# 另一个页面：住进去 · 高品质酒店入住旅程设计师
-
-> 2026 飞猪 AI 旅行创新大赛参赛作品 · 命题方向：高品质酒店 staycation
-
-告诉它你是谁、和谁去、想要什么。它基于**飞猪真实酒店与万豪套餐数据**选出最适合你的酒店，
-用**多模态**读懂酒店（套餐、评价、图片），按**空间**把酒店内外的体验分层编排成一段完整旅程，
-并在旅程中**主动提醒**你下一步该做什么。同一家酒店，亲子和情侣会收到完全不同的旅程。
-
-## 流程
-
-```
-一句话需求 / 种草截图
-  └─ 百炼 qwen-plus：解析城市、日期、人群、预算、想要的体验      （截图走 qwen3-vl-plus）
-       └─ 飞猪 flyai：search-hotel + search-marriott-hotel + search-marriott-package
-            └─ 代码排序：评分、预算、人群关键词、是否有套餐
-                 ├─ 百炼 qwen-plus：从套餐和评价原文提取体验 → 代码校验“证据必须逐字出现在原文”
-                 ├─ 百炼 qwen3-vl-plus：从酒店/套餐图片识别设施 → 自动进入“待确认”
-                 └─ 飞猪 search-poi + 坐标距离：步行圈 / 车程圈
-                      └─ 百炼 qwen-plus：为两种人群编排旅程与主动提醒
-                           → 代码校验 experience_id、入住/退房时间窗；不合格则确定性兜底
-```
-
-**分工原则**：百炼负责理解与表达；价格、距离、时间窗、来源全部来自飞猪数据和代码，
-模型引用不到真实数据的内容一律丢弃。每条体验都标注依据：套餐权益 / 用户评价 / 图片识别 / 周边数据。
+**分工原则**：百炼负责理解（英文、机票截图）和推荐（相似景点）；能不能这样走，由规则引擎按公告判定。
+模型给出的时刻、景点都要经过代码校验：原话里没有钟点就不采用模型补的时刻，推荐的景点必须定位在允许区域内。
 
 ## 本地运行
 
@@ -62,27 +32,36 @@ npm i -g @fly-ai/flyai-cli
 
 # 2. 配置（.env 已被 gitignore，切勿提交）
 cp .env.example .env
-#   填写 DASHSCOPE_API_KEY（百炼）和 FLYAI_API_KEY（飞猪）；AMAP_KEY 可选（“Web服务”类型，用于真实地图）
+#   填写 DASHSCOPE_API_KEY（百炼）、FLYAI_API_KEY（飞猪）、AMAP_KEY（高德“Web服务”类型）
+.venv/bin/python scripts/check_keys.py   # 三个 Key 是否可用
 
 # 3. 启动
 .venv/bin/uvicorn app.main:app --port 8000
 # 打开 http://localhost:8000
 ```
 
-离线演示：`FLYAI_MODE=fixture` 使用 `fixtures/` 下的样例数据（页面会明确标出“样例数据”），百炼仍需真实 Key。
-样例数据是飞猪线上真实返回的快照，用 `python scripts/refresh_fixtures.py 上海 2026-10-31 2026-11-01 上海漕河泾万丽酒店` 重新抓取。
+- 测试：`.venv/bin/pytest`（规则引擎、解析、排程、提醒、识图、接口，不联网）
+- 全链路实测：`.venv/bin/python scripts/probe_route.py "I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm ..."`
+- 离线预览（真实结果录制成单文件页面）：`.venv/bin/python scripts/build_transit_preview.py`，生成 `preview_transit/preview.html`
+- 示例机票截图（虚构乘客，标 SAMPLE）：`.venv/bin/python scripts/make_sample_tickets.py <输出目录>`
 
-数据实测：`bash scripts/probe_flyai.sh 上海 2026-10-31 2026-11-01`
-
-测试：`.venv/bin/python -m pytest -q`
+飞猪有风控：15 分钟内约 90 次请求会被拦截。查询结果缓存在 `.cache/flyai/`，演示请用录制的结果。
 
 ## 目录
 
 | 路径 | 说明 |
 |---|---|
-| `app/pipeline.py` | 主流程：需求解析、召回排序、体验挖掘、旅程编排、校验与兜底 |
-| `app/flyai.py` | flyai CLI 封装、结果缓存、样例模式 |
+| `app/transit.py` | 规则引擎 R1–R9：适用政策、240 小时截止（入境次日 0 时起算）、区域、口岸、第三国 |
+| `data/transit_240h.json` | 规则数据：57 国、24 省停留区域、65 个口岸、30 天单方面免签名单，均标出处 |
+| `app/travelmate.py` | 英文需求解析、地点定位、合并机票信息、首轮判定 |
+| `app/ticket.py` | 机票截图识别：抄写航段，判定入境段 / 离境段与真实出发地 |
+| `app/route.py` | 按城市排程，火车 / 航班选择，离境航班与枢纽兜底 |
+| `app/alternatives.py` | 出界景点的同类替代（模型推荐，代码校验） |
+| `app/reminders.py` | 主动提醒与 .ics 日历 |
+| `app/flyai.py` | 飞猪 flyai CLI 封装与缓存 |
+| `app/geo.py` | 高德地点搜索 / 地理编码，两点距离 |
 | `app/llm.py` | 百炼（DashScope OpenAI 兼容接口）文本与视觉调用 |
-| `app/geo.py` | 距离、方位、空间分层；可选高德地理编码与静态地图 |
-| `app/static/index.html` | 移动端 H5 前端 |
-| `docs/` | 选题调研、参赛提交稿 |
+| `app/main.py` | FastAPI 接口，`/api/transit/stream` 分阶段返回 |
+| `app/static/transit.html` | 英文 H5 页面 |
+| `docs/travelmate/` | 规则表与出处、演示剧本、效果截图 |
+| `docs/SUBMISSION.md` | 参赛提交稿 |

@@ -83,3 +83,9 @@ def test_missing_keys_reported_before_streaming(client, monkeypatch):
 def test_beijing_today_is_a_date():
     import datetime as dt
     assert abs((main.beijing_today() - dt.date.today()).days) <= 1
+
+
+@pytest.mark.parametrize("path", ["/", "/transit"])
+def test_home_serves_travelmate(client, path):
+    r = client.get(path)
+    assert r.status_code == 200 and "<title>TravelMate" in r.text
