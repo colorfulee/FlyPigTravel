@@ -51,3 +51,17 @@ def test_stream_reports_llm_error(client, monkeypatch):
 def test_input_validation(client, text, code):
     assert client.post("/api/transit/stream", json={"text": text}).status_code == code
     assert client.post("/api/transit", json={"text": text}).status_code == code
+
+
+@pytest.mark.parametrize("images, code", [(["http://x/y.png"], 400), (["data:image/png;base64,a"] * 3, 400),
+                                          (["data:image/png;base64," + "a" * 8_000_001], 413)])
+def test_screenshot_validation(client, images, code):
+    assert client.post("/api/transit/stream", json={"text": "hi", "images": images}).status_code == code
+
+
+def test_screenshot_without_text_is_accepted(client, monkeypatch):
+    from test_ticket import EN_TICKET, VisionLLM
+    monkeypatch.setattr(main, "llm", lambda: VisionLLM({}, {"data:image/png;base64,0": EN_TICKET}))
+    evs = lines(client.post("/api/transit/stream", json={"text": "", "images": ["data:image/png;base64,0"]}))
+    a = evs[0]["assessment"]
+    assert a["ticket"]["entry"]["flight_no"] == "MU586" and a["request"]["missing"] == ["国籍"]

@@ -8,6 +8,7 @@
 - 逐个串行请求、飞猪结果走缓存，避免触发 flyai 风控
 - 预览页按阶段回放（先结论、后行程），和线上体验一致
 """
+import base64
 import datetime as dt
 import json
 import re
@@ -26,6 +27,10 @@ out = Path(args[0] if args else ROOT / "preview_transit")
 (out / "cases").mkdir(parents=True, exist_ok=True)
 page = (ROOT / "app/static/transit.html").read_text(encoding="utf-8")
 examples = json.loads(re.sub(r",\s*\]$", "]", re.search(r"const EXAMPLES = (\[.*?\]);", page, re.S).group(1)))
+# 最后一个示例带机票截图：页面里用 /static/sample_ticket.jpg，预览里内嵌成 data URI
+examples += json.loads("[" + ",".join(re.findall(r'EXAMPLES\.push\(("(?:[^"\\]|\\.)*")\);', page)) + "]")
+SAMPLE = "data:image/jpeg;base64," + base64.b64encode((ROOT / "app/static/sample_ticket.jpg").read_bytes()).decode()
+images_for = {len(examples) - 1: [SAMPLE]} if 'EXAMPLES.push(' in page else {}
 
 cases = []
 for i, text in enumerate(examples):
@@ -34,7 +39,7 @@ for i, text in enumerate(examples):
     if reuse and saved.exists() and json.loads(saved.read_text(encoding="utf-8"))["text"] == text:
         r = json.loads(saved.read_text(encoding="utf-8"))["result"]
     else:
-        r = json.loads(_collect(_transit_stages(text)).model_dump_json())
+        r = json.loads(_collect(_transit_stages(text, images_for.get(i))).model_dump_json())
     (out / "cases" / f"case{i}.json").write_text(json.dumps({"text": text, "result": r}, ensure_ascii=False),
                                                  encoding="utf-8")
     v = r["itinerary"]["verdict"] or r["assessment"]["verdict"] or {}
@@ -43,7 +48,8 @@ for i, text in enumerate(examples):
           f" | {route} | 替代 {len(r['alternatives']['items'])} | 提醒 {len(r['reminders'])}")
     cases.append({"text": text, "result": r})
 
-html = page
+html = page.replace('const SAMPLE_TICKET = "/static/sample_ticket.jpg";', f'const SAMPLE_TICKET = "{SAMPLE}";')
+assert SAMPLE in html, "页面结构变了：找不到示例机票"
 # 发布到 Artifact 时会自动包文档骨架：去掉自带的 doctype/html/head/body
 html = re.sub(r"<!doctype html>\s*<html[^>]*>\s*<head>\s*<meta charset=\"utf-8\">\s*<meta name=\"viewport\"[^>]*>\s*", "", html)
 html = html.replace("</head>\n<body>\n", "").replace("</body>\n</html>\n", "")
@@ -83,7 +89,7 @@ window.fetch = async (url, opts = {}) => {
   if (url === "/api/transit/stream") {
     const text = JSON.parse(opts.body || "{}").text;
     const hit = DEMO.find((c) => c.text === text);
-    if (!hit) return ndjson([{ stage: "error", detail: "This demo only includes the four trips above. Tap one of them, or run the service locally to check your own trip." }], [600]);
+    if (!hit) return ndjson([{ stage: "error", detail: "This demo only includes the five trips above. Tap one of them, or run the service locally to check your own trip." }], [600]);
     const r = hit.result; lastDemo = r;
     return ndjson([
       { stage: "assessment", assessment: r.assessment },
@@ -97,11 +103,15 @@ window.fetch = async (url, opts = {}) => {
 </script>
 """ % json.dumps(cases, ensure_ascii=False)
 html = html.replace("<script>\nconst $ =", shim + "<script>\nconst $ =", 1)
-# 预览里点示例直接开始，并默认展示第一个
-html = html.replace('''  $("q").value = EXAMPLES[+c.dataset.i];
-};''', '''  $("q").value = EXAMPLES[+c.dataset.i]; $("go").click();
+# 预览里点示例直接开始（带截图的示例等图片加载完再开始），并默认展示第一个
+click_old = """  const imgs = EXAMPLE_IMAGES[+c.dataset.i] || [];
+  if (imgs.length) Promise.all(imgs.map(urlToDataUrl)).then((xs) => { shots = xs; renderThumbs(); }).catch(() => {});
+};"""
+assert click_old in html, "页面结构变了：找不到示例点击逻辑"
+html = html.replace(click_old, """  const imgs = EXAMPLE_IMAGES[+c.dataset.i] || [];
+  Promise.all(imgs.map(urlToDataUrl)).then((xs) => { shots = xs; renderThumbs(); }).catch(() => {}).then(() => $("go").click());
 };
-window.addEventListener("load", () => $("examples").firstElementChild.click());''')
-assert "const DEMO =" in html and "$(\"go\").click()" in html, "页面结构变了，预览注入失败"
+window.addEventListener("load", () => $("examples").firstElementChild.click());""")
+assert "const DEMO =" in html and "window.__PREVIEW__" in html, "页面结构变了，预览注入失败"
 (out / "preview.html").write_text(html, encoding="utf-8")
 print("预览页：", out / "preview.html", f"{len(html) // 1024} KB")

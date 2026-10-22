@@ -7,11 +7,13 @@
 import datetime as dt
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel, Field
 
 from .geo import Geocoder, Place
 from .llm import LLM
+from .ticket import TicketInfo, read_tickets
 from .transit import Issue, Rules, Stop, Trip, Verdict, default_rules
 
 PURPOSES = ("旅游", "商务", "访问", "探亲", "工作", "学习", "新闻采访")
@@ -81,6 +83,7 @@ class LocatedStop(BaseModel):
 
 class Assessment(BaseModel):
     request: TripRequest
+    ticket: TicketInfo | None = None  # 上传了机票截图时，识别出的航段
     stops: list[LocatedStop] = Field(default_factory=list)
     verdict: Verdict | None = None  # 缺关键信息时为 None
     rules_as_of: str = ""
@@ -158,11 +161,20 @@ def locate(geo: Geocoder, places: list[PlaceAsk]) -> list[LocatedStop]:
     return [LocatedStop(ask=p, place=geo.locate(p.zh, p.city)) for p in places]
 
 
-def assess(llm: LLM, geo: Geocoder, text: str, today: dt.date, rules: Rules | None = None) -> Assessment:
+def assess(llm: LLM, geo: Geocoder, text: str, today: dt.date, rules: Rules | None = None,
+           images: list[str] | None = None) -> Assessment:
     rules = rules or default_rules()
-    req = parse_request(llm, text, today, rules)
+    ticket = None
+    if images:  # 文字解析与看图互不依赖，并行
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut = pool.submit(read_tickets, llm, images, today)
+            req = parse_request(llm, text, today, rules) if text.strip() else _empty_request(rules)
+            ticket = fut.result()
+        apply_ticket(req, ticket, rules)
+    else:
+        req = parse_request(llm, text, today, rules)
     stops = locate(geo, req.places)
-    out = Assessment(request=req, stops=stops, rules_as_of=rules.as_of)
+    out = Assessment(request=req, ticket=ticket, stops=stops, rules_as_of=rules.as_of)
     if req.missing:
         return out
     trip = Trip(
@@ -178,6 +190,73 @@ def assess(llm: LLM, geo: Geocoder, text: str, today: dt.date, rules: Rules | No
                                  en=f"We couldn't locate \"{s.ask.text}\". Please check it's inside the allowed area.")
                            for s in stops if s.place is None]
     return out
+
+
+def _empty_request(rules: Rules) -> TripRequest:
+    """只传了截图、没写文字：其余信息靠截图补，补不上的再追问。"""
+    req = TripRequest()
+    _refresh_missing(req, rules)
+    return req
+
+
+# 追问项（中文开头） → 对应字段；截图补上字段后，相应追问要撤掉
+_ASK_FIELD = {"国籍": "nationality", "入境日期": "entry_time", "入境机场": "entry_port",
+              "离开中国后去哪个国家": "destination"}
+
+
+def _refresh_missing(req: TripRequest, rules: Rules) -> None:
+    keep = [i for i, zh in enumerate(req.missing)
+            if not any(zh.startswith(k) and getattr(req, f) is not None for k, f in _ASK_FIELD.items())]
+    req.missing = [req.missing[i] for i in keep]
+    req.missing_en = [req.missing_en[i] for i in keep]
+    for field, label, en in _required(rules, req.nationality):
+        if getattr(req, field) is None and not any(m.startswith(label) for m in req.missing):
+            req.missing.append(label)
+            req.missing_en.append(en)
+
+
+def _drop_assumptions(req: TripRequest, prefixes: tuple[str, ...]) -> None:
+    keep = [i for i, zh in enumerate(req.assumptions) if not zh.startswith(prefixes)]
+    req.assumptions = [req.assumptions[i] for i in keep]
+    req.assumptions_en = [req.assumptions_en[i] for i in keep]
+
+
+def apply_ticket(req: TripRequest, t: TicketInfo, rules: Rules) -> None:
+    """票面信息比用户的描述可靠：覆盖航班相关字段，有出入时写明。"""
+    if t.unreadable:
+        req.assume(f"有 {t.unreadable} 张截图没认出航班信息", f"We couldn't read flight details from "
+                   f"{t.unreadable} screenshot{'s' if t.unreadable > 1 else ''}. Try a clearer one.")
+    if t.entry:
+        e = t.entry
+        port = rules.find_port(e.arr_iata) if e.arr_iata else None
+        when = e.arr_time or e.dep_time
+        if req.entry_time and req.entry_time.date() != when.date():
+            req.assume(f"你写的入境日期是 {req.entry_time:%m-%d}，机票上是 {when:%m-%d}，按机票计算",
+                       f"You wrote {req.entry_time:%b %d}, but your ticket lands {when:%b %d}. We used the ticket.")
+        _drop_assumptions(req, ("入境",))
+        req.entry_port = port.name if port else (e.arr_airport or e.arr_city or None)
+        req.entry_time = when
+        if e.arr_time is None:
+            req.assume(f"截图里没有 {e.flight_no} 的到达时刻，按起飞时间估算",
+                       f"Your screenshot doesn't show when {e.flight_no} lands, so we used its departure time.")
+        if t.origin:
+            _drop_assumptions(req, ("未说明从哪里飞来",))
+            req.origin = t.origin
+    if t.exit:
+        x = t.exit
+        port = rules.find_port(x.dep_iata) if x.dep_iata else None
+        _drop_assumptions(req, ("离境",))
+        req.exit_port = port.name if port else (x.dep_airport or x.dep_city or None)
+        req.exit_time = x.dep_time
+        req.exit_time_known = x.dep_time_known
+        req.destination = t.destination or req.destination
+        req.destination_city = t.destination_city or req.destination_city
+    for zh, en in zip(t.notes, t.notes_en):
+        if not zh.startswith("截图里没有"):  # 这条上面已按入境段写过
+            req.assume(zh, en)
+    if req.origin is None and req.nationality:
+        req.origin = req.nationality
+    _refresh_missing(req, rules)
 
 
 def _text(v) -> str | None:

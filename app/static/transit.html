@@ -74,6 +74,14 @@
   .rem .t small { display: block; font-weight: 400; color: var(--muted); }
   .rem .title { font-weight: 600; }
   .rem.k-deadline .title, .rem.k-area .title { color: var(--bad); }
+  .thumb { position: relative; width: 72px; height: 88px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb button { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; line-height: 1; }
+  .seg { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 9px 0; border-top: 1px dashed var(--line); font-size: 14px; }
+  .seg:first-child { border-top: 0; }
+  .seg .tag { font-size: 12px; border-radius: 999px; padding: 1px 8px; align-self: start; }
+  .seg .tag.in { background: var(--ok-soft); color: var(--ok); } .seg .tag.out { background: var(--info-soft); color: var(--info); }
+  label.chip { display: inline-block; }
   .err { background: var(--bad-soft); border: 1px solid #fecdca; border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-size: 14px; }
   footer { text-align: center; margin-top: 24px; }
   footer a { color: var(--muted); }
@@ -86,6 +94,12 @@
   <section class="card">
     <label for="q" class="muted">Tell us your passport, arrival, where you fly next, and what you want to see.</label>
     <textarea id="q" placeholder="I'm American, landing at Shanghai Pudong on Oct 26 at 2:30pm, flying to Seoul on Nov 4. Want Hangzhou and the pandas in Chengdu."></textarea>
+    <div class="row" style="margin-top:8px">
+      <label class="chip" for="shots">📎 Add ticket screenshots</label>
+      <input id="shots" type="file" accept="image/*" multiple class="hidden">
+      <span class="muted">Optional · up to 2 · e-ticket, booking page or boarding pass</span>
+    </div>
+    <div class="row" id="thumbs" style="margin-top:8px"></div>
     <div class="row" style="margin-top:8px" id="examples"></div>
     <div class="row" style="margin-top:12px; justify-content:flex-end">
       <button class="primary" id="go">Check my trip</button>
@@ -98,6 +112,7 @@
   <div id="result" class="hidden">
     <section id="verdict" class="verdict"></section>
     <section class="card" id="askCard"></section>
+    <section class="card" id="ticketCard"><h2>From your tickets</h2><div id="segments"></div></section>
     <section class="card" id="clockCard"></section>
     <section class="card" id="issuesCard"><h2>What we checked</h2><div id="issues"></div></section>
     <section class="card" id="planCard"><h2>Your route</h2><div id="removed" class="removed"></div><div id="alts"></div><div id="plan"></div></section>
@@ -130,12 +145,43 @@ const EXAMPLES = [
   "I'm German, coming to Kunming from Bangkok next week, want Dali, Lijiang and Shangri-La, then fly to Singapore.",
 ];
 const EXAMPLE_TITLES = ["🇺🇸 Shanghai → Chengdu, plus Jiuzhaigou", "🇺🇸 Beijing → Xi'an, leaving late",
-  "🇲🇽 Flying home from Guangzhou", "🇩🇪 Yunnan from Bangkok"];
+  "🇲🇽 Flying home from Guangzhou", "🇩🇪 Yunnan from Bangkok", "🎫 From a ticket screenshot"];
+// 最后一个示例只有一句话，航班信息全靠附带的示例机票截图（虚构乘客，标有 SAMPLE）
+EXAMPLES.push("I'm American. Want to see Hangzhou and the pandas in Chengdu.");
+const SAMPLE_TICKET = "/static/sample_ticket.jpg";
+const EXAMPLE_IMAGES = { [EXAMPLES.length - 1]: [SAMPLE_TICKET] };
 $("examples").innerHTML = EXAMPLES.map((e, i) => `<button type="button" class="chip" data-i="${i}">${esc(EXAMPLE_TITLES[i])}</button>`).join("");
 $("examples").onclick = (ev) => {
   const c = ev.target.closest(".chip"); if (!c) return;
   [...$("examples").children].forEach((x) => x.classList.toggle("on", x === c));
   $("q").value = EXAMPLES[+c.dataset.i];
+  shots = []; renderThumbs();
+  const imgs = EXAMPLE_IMAGES[+c.dataset.i] || [];
+  if (imgs.length) Promise.all(imgs.map(urlToDataUrl)).then((xs) => { shots = xs; renderThumbs(); }).catch(() => {});
+};
+
+// ---- 机票截图：浏览器里先缩到 1600px 以内再上传（手机截图常有好几 MB） ----
+const MAX_SHOTS = 2;
+let shots = [];
+const renderThumbs = () => {
+  $("thumbs").innerHTML = shots.map((u, i) => `<div class="thumb"><img src="${esc(u)}" alt="Ticket screenshot ${i + 1}"><button type="button" data-rm="${i}" aria-label="Remove screenshot ${i + 1}">×</button></div>`).join("");
+};
+$("thumbs").onclick = (ev) => { const b = ev.target.closest("[data-rm]"); if (b) { shots.splice(+b.dataset.rm, 1); renderThumbs(); } };
+const shrink = (src) => new Promise((ok, bad) => {
+  const img = new Image();
+  img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = Object.assign(document.createElement("canvas"), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.85)); };
+  img.onerror = () => bad(new Error("That file isn't an image we can read"));
+  img.src = src;
+});
+const fileToDataUrl = (f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
+async function urlToDataUrl(u) { if (u.startsWith("data:")) return u; const b = await (await fetch(u)).blob(); return shrink(await fileToDataUrl(b)); }
+$("shots").onchange = async (ev) => {
+  const files = [...ev.target.files].slice(0, MAX_SHOTS - shots.length);
+  try { for (const f of files) shots.push(await shrink(await fileToDataUrl(f))); }
+  catch (e) { $("status").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  renderThumbs(); ev.target.value = "";
 };
 
 // ---- 时间：后端给的是北京时间、不带时区的 ISO 字符串，直接按字面显示，不做时区换算 ----
@@ -166,7 +212,7 @@ async function check(text) {
   busy(true); $("status").innerHTML = ""; $("result").classList.add("hidden");  // 不让上一个结果冒充新结果
   let state = null;
   try {
-    const r = await fetch("/api/transit/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const r = await fetch("/api/transit/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, images: shots }) });
     if (!r.ok) { const data = await r.json().catch(() => ({})); throw new Error(data.detail || `Request failed (${r.status})`); }
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -193,7 +239,7 @@ async function check(text) {
     $("snap").onclick = async (ev) => { ev.preventDefault(); const r = await fetch("/api/transit/snapshot"); if (r.ok) render(await r.json()); };
   } finally { busy(false); }
 }
-$("go").onclick = () => { const t = $("q").value.trim(); if (t) check(t); else $("q").focus(); };
+$("go").onclick = () => { const t = $("q").value.trim(); if (t || shots.length) check(t); else $("q").focus(); };
 
 function render(d) {
   const a = d.assessment, req = a.request;
@@ -237,6 +283,17 @@ function render(d) {
     if (!extra) return;
     $("q").value = `${$("q").value.trim()} ${extra}`; check($("q").value);
   };
+
+  // 2b. 机票截图里认出的航段（入境段、离境段标出来）
+  const tk = a.ticket;
+  $("ticketCard").classList.toggle("hidden", !(tk && tk.segments.length));
+  if (tk && tk.segments.length) {
+    const isSeg = (s, x) => x && s.flight_no === x.flight_no && s.dep_time === x.dep_time;
+    $("segments").innerHTML = tk.segments.map((s) => `<div class="seg"><div><b>${esc(s.flight_no)}</b> ${esc(s.dep_iata || s.dep_airport)} <span class="zh">${esc(s.dep_city)}</span> → ${esc(s.arr_iata || s.arr_airport)} <span class="zh">${esc(s.arr_city)}</span>
+        <div class="muted">Departs ${esc(when(s.dep_time))}${s.arr_time ? ` · lands ${esc(when(s.arr_time))}` : " · landing time not shown"} (local time)</div></div>
+        ${isSeg(s, tk.entry) ? `<span class="tag in">Entry</span>` : isSeg(s, tk.exit) ? `<span class="tag out">Exit</span>` : ""}</div>`).join("")
+      + `<p class="muted" style="margin:8px 0 0">Read by Qwen-VL from your screenshot. Check the details match your booking.</p>`;
+  }
 
   // 3. 截止时间与倒计时条
   $("clockCard").classList.toggle("hidden", !(v && v.deadline));
