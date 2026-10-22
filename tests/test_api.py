@@ -65,3 +65,21 @@ def test_screenshot_without_text_is_accepted(client, monkeypatch):
     evs = lines(client.post("/api/transit/stream", json={"text": "", "images": ["data:image/png;base64,0"]}))
     a = evs[0]["assessment"]
     assert a["ticket"]["entry"]["flight_no"] == "MU586" and a["request"]["missing"] == ["国籍"]
+
+
+def test_missing_keys_reported_before_streaming(client, monkeypatch):
+    from app.geo import Geocoder
+    monkeypatch.setattr(main, "geo", Geocoder(key=""))
+    r = client.post("/api/transit/stream", json={"text": "hi"})
+    assert r.status_code == 503 and "AMAP_KEY" in r.json()["detail"]
+
+    def no_key():
+        raise main.HTTPException(503, "缺少 DASHSCOPE_API_KEY")
+    monkeypatch.setattr(main, "llm", no_key)
+    r = client.post("/api/transit", json={"text": "hi"})
+    assert r.status_code == 503 and "DASHSCOPE_API_KEY" in r.json()["detail"]
+
+
+def test_beijing_today_is_a_date():
+    import datetime as dt
+    assert abs((main.beijing_today() - dt.date.today()).days) <= 1

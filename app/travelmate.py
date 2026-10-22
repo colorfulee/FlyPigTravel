@@ -39,7 +39,7 @@ SYSTEM = """你是入境中国旅行助手的需求解析器。用户用英文�
  "entry_city": 入境城市中文名或 null, "exit_city": 离境城市中文名或 null,
  "entry_date": "YYYY-MM-DD" 或 null, "entry_time": "HH:MM"（只有用户写出具体时刻才填，“morning”这类不算）或 null,
  "exit_port": 离境的机场或口岸，同上, "exit_date": "YYYY-MM-DD" 或 null, "exit_time": "HH:MM" 或 null,
- "places": [{{"text": 用户原话, "zh": 中文标准地名（景点用官方中文名，如 Jiuzhaigou → 九寨沟，pandas in Chengdu → 成都大熊猫繁育研究基地）, "city": 所在城市中文名或 null}}],
+ "places": [{{"text": 用户原话, "zh": 中文标准地名（景点用官方中文名，如 Jiuzhaigou → 九寨沟，pandas in Chengdu → 成都大熊猫繁育研究基地）, "city": 所在城市中文名或 null, "in_china": 是否在中国内地（东京、首尔、香港、澳门、台北等写 false）}}],
  "purpose": {purposes} 之一，没说填“旅游”}}
 规则：
 - 用户没说的一律填 null，不要猜；日期按“今天”推算到最近的未来日期。
@@ -65,6 +65,7 @@ class TripRequest(BaseModel):
     exit_time: dt.datetime | None = None
     exit_time_known: bool = False  # 用户说了离境时刻（如已订航班）；只给日期时为 False，行程规划会替他查航班
     places: list[PlaceAsk] = Field(default_factory=list)
+    abroad: list[str] = Field(default_factory=list)  # 用户提到的境外地点（东京、香港……），不参与中国境内的区域校验
     purpose: str = "旅游"
     missing: list[str] = Field(default_factory=list)  # 判定前必须向用户追问的字段
     assumptions: list[str] = Field(default_factory=list)  # 代码替用户补的值，页面上要明示
@@ -103,6 +104,7 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
         exit_port=_text(raw.get("exit_port")),
         purpose=raw.get("purpose") if raw.get("purpose") in PURPOSES else "旅游",
         places=_places(raw.get("places")),
+        abroad=_abroad(raw.get("places")),
     )
     req.entry_port = req.entry_port or _port_from_city(rules, _text(raw.get("entry_city")), "入境", req)
     req.exit_port = req.exit_port or _port_from_city(rules, _text(raw.get("exit_city")), "离境", req)
@@ -111,6 +113,11 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
     req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time") if clock else None, today, "入境", req)
     req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time") if clock else None, today, "离境", req)
     req.exit_time_known = req.exit_time is not None and not any(a.startswith("离境时刻") for a in req.assumptions)
+    if req.abroad:
+        names = ", ".join(req.abroad)
+        req.assume(f"{'、'.join(req.abroad)} 不在中国内地，不在这次检查范围内",
+                   f"{names} {'is' if len(req.abroad) == 1 else 'are'} outside mainland China, so we left "
+                   f"{'it' if len(req.abroad) == 1 else 'them'} out of this check.")
     if req.origin is None and req.nationality:
         req.origin = req.nationality
         req.assume(f"未说明从哪里飞来，按国籍国（{req.nationality}）处理",
@@ -272,10 +279,16 @@ def _country(v) -> str | None:
     return v or None
 
 
+def _abroad(items) -> list[str]:
+    return [_text(it.get("text")) or _text(it.get("zh")) for it in items or []
+            if isinstance(it, dict) and it.get("in_china") is False and (it.get("text") or it.get("zh"))]
+
+
 def _places(items) -> list[PlaceAsk]:
+    """只保留中国内地的地点：实测“Tokyo”会被高德定位到黑龙江一个叫“东京”的地方，再被判成出界。"""
     out, seen = [], set()
     for it in items or []:
-        if not isinstance(it, dict):
+        if not isinstance(it, dict) or it.get("in_china") is False:
             continue
         zh = _text(it.get("zh"))
         if not zh or zh in seen:

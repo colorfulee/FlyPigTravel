@@ -209,3 +209,13 @@ def test_assess_german_to_shangri_la_ok():
     a = assess(trip(nationality="德国", origin="泰国", places=[{"text": "Shangri-La", "zh": "香格里拉"}]),
                fake_geo(), "…", TODAY)
     assert a.verdict.ok and a.verdict.policy == "unilateral_30d"
+
+
+def test_places_abroad_are_left_out_with_a_note():
+    """实测：Tokyo 被高德定位到黑龙江的“东京”，再被判成出界。境外地点不参与区域校验。"""
+    r = parse_request(trip(places=[{"text": "Shanghai", "zh": "上海", "in_china": True},
+                                   {"text": "Tokyo", "zh": "东京", "in_china": False},
+                                   {"text": "Hong Kong", "zh": "香港", "in_china": False}]), "…", TODAY)
+    assert [p.zh for p in r.places] == ["上海"] and r.abroad == ["Tokyo", "Hong Kong"]
+    assert any("outside mainland China" in x for x in r.assumptions_en)
+    assert len(r.assumptions) == len(r.assumptions_en)

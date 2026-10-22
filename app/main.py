@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -133,10 +134,24 @@ def _check_input(req: TransitRequest) -> tuple[str, list[str]]:
     return text, req.images
 
 
-def _transit_stages(text: str, images: list[str] | None = None):
+def _ready() -> Bailian:
+    """配置问题在开始前就说清楚，不要让管理员以为是“服务繁忙”而反复重试。"""
+    model = llm()  # 缺 DASHSCOPE_API_KEY 时抛 503，带原因
+    if not geo.enabled:
+        raise HTTPException(503, "The service isn't configured: AMAP_KEY (Amap Web Service key) is missing. "
+                                 "TravelMate needs it to check which city each place is in.")
+    return model
+
+
+def beijing_today() -> dt.date:
+    # 服务器常跑在 UTC：北京时间 0-8 点之间用 date.today() 会差一天，“next week”就推错了
+    return dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
+def _transit_stages(text: str, images: list[str] | None = None, model: Bailian | None = None):
     """依次产出 (阶段名, 数据)：先给判定结论（约 15 秒），再给行程与替代推荐（两者并行）。"""
-    model = llm()
-    a = assess(model, geo, text, dt.date.today(), images=images or None)
+    model = model or _ready()
+    a = assess(model, geo, text, beijing_today(), images=images or None)
     yield "assessment", a
     with ThreadPoolExecutor(max_workers=2) as pool:
         # 替代推荐（一次百炼调用）和查火车航班（飞猪）互不依赖，并行省 10-20 秒
@@ -165,8 +180,9 @@ def _collect(stages) -> TransitResponse:
 @app.post("/api/transit", response_model=TransitResponse)
 def api_transit(req: TransitRequest):
     text, images = _check_input(req)
+    model = _ready()
     try:
-        result = _collect(_transit_stages(text, images))
+        result = _collect(_transit_stages(text, images, model))
     except LLMError as e:
         raise HTTPException(502, f"Our AI service is busy, please try again ({e})") from e
     _save_snapshot(text, images, result)
@@ -177,11 +193,12 @@ def api_transit(req: TransitRequest):
 def api_transit_stream(req: TransitRequest):
     """同样的结果按阶段推送（每行一个 JSON），页面先显示结论，不必干等 30 秒。"""
     text, images = _check_input(req)
+    model = _ready()  # 配置错误直接返回 503 + 原因，不进入流
 
     def events():
         got = []
         try:
-            for stage, data in _transit_stages(text, images):
+            for stage, data in _transit_stages(text, images, model):
                 got.append((stage, data))
                 if stage == "itinerary":
                     it, reminders = data
@@ -193,9 +210,11 @@ def api_transit_stream(req: TransitRequest):
                 yield json.dumps({"stage": stage, **body}, ensure_ascii=False) + "\n"
             _save_snapshot(text, images, _collect(got))
             yield json.dumps({"stage": "done"}) + "\n"
-        except (LLMError, FlyaiError, HTTPException) as e:
-            detail = getattr(e, "detail", None) or str(e)
-            yield json.dumps({"stage": "error", "detail": f"Our AI service is busy, please try again ({detail})"},
+        except LLMError as e:
+            yield json.dumps({"stage": "error", "detail": f"Our AI service is busy, please try again ({e})"},
+                             ensure_ascii=False) + "\n"
+        except FlyaiError as e:
+            yield json.dumps({"stage": "error", "detail": f"Fliggy search didn't respond, please try again ({e})"},
                              ensure_ascii=False) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson")

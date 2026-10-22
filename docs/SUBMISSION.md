@@ -72,7 +72,7 @@ TravelMate · 240 小时过境免签行程规划助手（入境游）
 
 ## 项目链接与复现方式
 
-- GitHub：https://github.com/colorfulee/FlyPigTravel （分支 `claude/travelmate`）
+- GitHub：https://github.com/colorfulee/FlyPigTravel
 - 在线 Demo：【待填】
 - 演示视频：【待填】
 - 复现：
