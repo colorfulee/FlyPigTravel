@@ -254,7 +254,9 @@ function render(d) {
   $("result").classList.remove("hidden");
 
   // 1. 结论
-  const blocks = v ? v.issues.filter((i) => i.level === "block") : [];
+  // 被区域规则拦下的地点会被移出行程，不算“不允许”（否则行程到达前横幅先显示 Not allowed，随后又翻成 Works）
+  const isRemoved = (i) => i.rule === "R6" && i.level === "block" && it.skipped.includes(i.subject);
+  const blocks = v ? v.issues.filter((i) => i.level === "block" && !isRemoved(i)) : [];
   let cls = "info", title = "We need a few more details", sub = "";
   if (v && v.policy === "unilateral_30d") { cls = blocks.length ? "bad" : "info"; title = blocks.length ? "Your stay is too long" : "You can enter visa-free for 30 days"; sub = "Your passport qualifies for China's 30-day visa-free entry, which is simpler than the 240-hour transit rule."; }
   else if (v && v.policy === "not_eligible") { cls = "bad"; title = "You'll need a visa"; }
@@ -300,7 +302,8 @@ function render(d) {
   if (v && v.deadline) {
     const hours = v.policy === "unilateral_30d" ? 30 * 24 : 240;
     const startMs = ms(v.deadline) - hours * 3600e3;
-    const exitIso = it.exit_leg ? it.exit_leg.dep_time : req.exit_time;
+    // 行程到达前不画进度条（离境时刻还是假设值，到了会跳一下）
+    const exitIso = it.exit_leg ? it.exit_leg.dep_time : (pending && !req.exit_time_known ? null : req.exit_time);
     let barHtml = "";
     if (exitIso) {
       const pct = Math.max(0, Math.min(100, (ms(exitIso) - startMs) / (hours * 3600e3) * 100));
@@ -322,7 +325,7 @@ function render(d) {
   // 规划前被区域规则拦下、已移出行程的地点，也要在清单里交代
   const removed = (a.verdict ? a.verdict.issues : []).filter((i) => i.rule === "R6" && i.level === "block" && it.skipped.includes(i.subject))
     .map((i) => ({ ...i, level: "removed", en: `${i.en} We removed it from your route.` }));
-  const issues = [...removed, ...(v ? v.issues : []), ...it.issues];
+  const issues = [...removed, ...(v ? v.issues.filter((i) => !isRemoved(i)) : []), ...it.issues];
   $("issuesCard").classList.toggle("hidden", !v);
   const icon = { block: "✕", warn: "!", info: "i", removed: "–" };
   // 英文提示里的中文地名换成用户自己写的叫法（九寨沟 → Jiuzhaigou）

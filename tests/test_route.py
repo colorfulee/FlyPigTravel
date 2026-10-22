@@ -33,7 +33,7 @@ US = {
                {"text": "pandas", "zh": "成都大熊猫繁育研究基地", "city": "成都"},
                {"text": "Jiuzhaigou", "zh": "九寨沟"}],
 }
-TEXT = "landing at 2:30pm"
+TEXT = "landing at 2:30pm on Oct 26"
 
 
 def poi(name, pname, city, lng, lat, type_="风景名胜"):
@@ -142,7 +142,7 @@ def test_first_leg_on_arrival_day_waits_for_landing():
 
 def test_booked_exit_flight_is_not_searched():
     fly = FakeFly(US_FLY)
-    it = plan({"exit_time": "10:30", "exit_port": "成都双流国际机场"}, fly, text="land 2:30pm, flight out 10:30")
+    it = plan({"exit_time": "10:30", "exit_port": "成都双流国际机场"}, fly, text="land 2:30pm Oct 26, flight out 10:30")
     assert it.exit_leg_booked and it.exit_leg is None
     assert ("航班", "成都", "首尔") not in [c[:3] for c in fly.calls]
     assert it.verdict.ok

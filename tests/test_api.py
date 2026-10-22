@@ -23,15 +23,15 @@ def lines(r):
 
 
 def test_stream_stages_in_order(client):
-    evs = lines(client.post("/api/transit/stream", json={"text": "landing at 2:30pm"}))
+    evs = lines(client.post("/api/transit/stream", json={"text": "landing at 2:30pm on Oct 26"}))
     assert [e["stage"] for e in evs] == ["assessment", "itinerary", "alternatives", "done"]
     assert evs[0]["assessment"]["verdict"]["policy"] == "transit_240h"
     assert evs[1]["itinerary"]["exit_leg"]["no"] == "3U3961" and evs[1]["reminders"] and "BEGIN:VCALENDAR" in evs[1]["ics"]
 
 
 def test_stream_and_full_agree_and_snapshot_saved(client, tmp_path):
-    full = client.post("/api/transit", json={"text": "landing at 2:30pm"}).json()
-    evs = lines(client.post("/api/transit/stream", json={"text": "landing at 2:30pm"}))
+    full = client.post("/api/transit", json={"text": "landing at 2:30pm on Oct 26"}).json()
+    evs = lines(client.post("/api/transit/stream", json={"text": "landing at 2:30pm on Oct 26"}))
     assert full["itinerary"] == evs[1]["itinerary"] and full["reminders"] == evs[1]["reminders"]
     snap = client.get("/api/transit/snapshot").json()
     assert snap["itinerary"] == full["itinerary"]

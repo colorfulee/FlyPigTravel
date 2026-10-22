@@ -113,7 +113,7 @@ def test_at_most_two_images_read():
 
 def test_ticket_overrides_text_and_notes_conflict():
     req = parse_request(FakeLLM({**US, "entry_date": "2026-10-26", "entry_time": "14:30", "exit_time": None}),
-                        "landing at 2:30pm", TODAY)
+                        "landing at 2:30pm on Oct 26", TODAY)
     t, _ = tickets(EN_TICKET)
     apply_ticket(req, t, R)
     assert req.entry_port == "上海浦东国际机场" and req.entry_time == dt.datetime(2026, 10, 27, 5, 40)

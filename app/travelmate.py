@@ -19,6 +19,11 @@ from .transit import Issue, Rules, Stop, Trip, Verdict, default_rules
 PURPOSES = ("旅游", "商务", "访问", "探亲", "工作", "学习", "新闻采访")
 CLOCK = re.compile(r"\b\d{1,2}(:\d{2})\s*(am|pm)?\b|\b\d{1,2}\s*(am|pm)\b|\d{1,2}[:：]\d{2}|\d{1,2}\s*点|noon|midnight",
                    re.I)
+# 原话里有没有日期：没有就不采用模型给的日期（实测只说“Want Hangzhou”时模型填了今天）
+_MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec"
+DATE = re.compile(rf"\b({_MONTHS})[a-z]*\.?\s*\d|\d{{1,2}}\s*({_MONTHS})|\d{{1,2}}[/.-]\d{{1,2}}|\d+\s*[月日号]"
+                  r"|\b(today|tonight|tomorrow|next|this|weekend|monday|tuesday|wednesday|thursday|friday|saturday"
+                  r"|sunday|in \d+ (days?|weeks?))\b|今天|明天|后天|下周|本周|这周|周末|下个?月", re.I)
 DEFAULT_TIME = dt.time(12, 0)  # 只说了日期没说时刻时的占位，会写进 assumptions
 
 # 模型偶尔给出全称或旧称，归一到规则表里的国名
@@ -109,9 +114,11 @@ def parse_request(llm: LLM, text: str, today: dt.date, rules: Rules | None = Non
     req.entry_port = req.entry_port or _port_from_city(rules, _text(raw.get("entry_city")), "入境", req)
     req.exit_port = req.exit_port or _port_from_city(rules, _text(raw.get("exit_city")), "离境", req)
     # 模型常替用户补一个时刻（没说几点却给 09:00），只有原话里有钟点才采用
-    clock = bool(CLOCK.search(text))
-    req.entry_time = _when(raw.get("entry_date"), raw.get("entry_time") if clock else None, today, "入境", req)
-    req.exit_time = _when(raw.get("exit_date"), raw.get("exit_time") if clock else None, today, "离境", req)
+    clock, dated = bool(CLOCK.search(text)), bool(DATE.search(text))
+    req.entry_time = _when(raw.get("entry_date") if dated else None, raw.get("entry_time") if clock else None,
+                           today, "入境", req)
+    req.exit_time = _when(raw.get("exit_date") if dated else None, raw.get("exit_time") if clock else None,
+                          today, "离境", req)
     req.exit_time_known = req.exit_time is not None and not any(a.startswith("离境时刻") for a in req.assumptions)
     if req.abroad:
         names = ", ".join(req.abroad)

@@ -42,7 +42,7 @@ def test_leg_reminders_name_station_and_time():
 
 
 def test_no_reminders_before_landing_except_pre_trip():
-    a, it, _ = planned({"entry_time": "20:00"}, text="landing 8pm")
+    a, it, _ = planned({"entry_time": "20:00"}, text="landing 8pm on Oct 26")
     rs = build_reminders(a, it)
     assert all(r.kind == "before_trip" or r.at >= a.request.entry_time for r in rs)
 

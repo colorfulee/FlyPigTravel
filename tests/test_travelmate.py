@@ -86,71 +86,71 @@ def test_parse_full_request():
 
 def test_prompt_lists_country_names():
     llm = trip()
-    parse_request(llm, "…", TODAY)
+    parse_request(llm, "Oct 26", TODAY)
     assert "吉尔吉斯斯坦" in llm.system and "秘鲁" in llm.system
 
 
 def test_country_aliases():
-    r = parse_request(trip(nationality="美利坚合众国", destination="中国香港"), "…", TODAY)
+    r = parse_request(trip(nationality="美利坚合众国", destination="中国香港"), "Oct 26", TODAY)
     assert (r.nationality, r.destination) == ("美国", "香港")
 
 
 def test_past_date_rolls_to_next_year():
-    r = parse_request(trip(entry_date="2025-10-26", exit_date="2025-11-04"), "…", TODAY)
+    r = parse_request(trip(entry_date="2025-10-26", exit_date="2025-11-04"), "Oct 26", TODAY)
     assert r.entry_time.year == 2026 and r.exit_time.year == 2026
 
 
 @pytest.mark.parametrize("v", [None, "null", "", "unknown"])
 def test_null_like_values(v):
-    r = parse_request(trip(destination=v), "…", TODAY)
+    r = parse_request(trip(destination=v), "Oct 26", TODAY)
     assert r.destination is None and "离开中国后去哪个国家" in r.missing
 
 
 def test_origin_defaults_to_nationality():
-    r = parse_request(trip(origin=None), "…", TODAY)
+    r = parse_request(trip(origin=None), "Oct 26", TODAY)
     assert r.origin == "美国" and any("按国籍国" in a for a in r.assumptions)
 
 
 def test_missing_fields_for_transit_country():
-    r = parse_request(trip(entry_port=None, entry_city=None, entry_date=None), "…", TODAY)
+    r = parse_request(trip(entry_port=None, entry_city=None, entry_date=None), "Oct 26", TODAY)
     assert r.missing == ["入境日期", "入境机场"]
 
 
 def test_unilateral_country_needs_no_port_or_destination():
-    r = parse_request(trip(nationality="德国", entry_port=None, entry_city=None, destination=None), "…", TODAY)
+    r = parse_request(trip(nationality="德国", entry_port=None, entry_city=None, destination=None), "Oct 26", TODAY)
     assert r.missing == []
 
 
 def test_unknown_nationality_is_the_only_question():
-    r = parse_request(trip(nationality=None, entry_port=None, entry_city=None), "…", TODAY)
+    r = parse_request(trip(nationality=None, entry_port=None, entry_city=None), "Oct 26", TODAY)
     assert r.missing == ["国籍"]
 
 
 def test_city_with_one_port_fills_it():
-    r = parse_request(trip(entry_port=None, entry_city="昆明"), "…", TODAY)
+    r = parse_request(trip(entry_port=None, entry_city="昆明"), "Oct 26", TODAY)
     assert r.entry_port == "昆明长水国际机场" and any("只有一个适用口岸" in a for a in r.assumptions)
 
 
 def test_city_with_several_ports_asks_which():
-    r = parse_request(trip(entry_port=None, entry_city="成都"), "…", TODAY)
+    r = parse_request(trip(entry_port=None, entry_city="成都"), "Oct 26", TODAY)
     assert r.entry_port is None
     assert r.missing == ["入境机场（成都有 2 个：成都双流国际机场、成都天府国际机场）"]
 
 
 def test_ambiguous_exit_city_does_not_block():
-    r = parse_request(trip(exit_city="上海"), "…", TODAY)
+    r = parse_request(trip(exit_city="上海"), "Oct 26", TODAY)
     assert r.missing == [] and r.exit_port is None
     assert any("上海有 3 个" in a and "暂不校验" in a for a in r.assumptions)
 
 
 def test_places_dedupe_and_bad_items():
     r = parse_request(trip(places=[{"text": "HZ", "zh": "杭州"}, {"text": "Hangzhou", "zh": "杭州"},
-                                   "garbage", {"text": "x", "zh": None}]), "…", TODAY)
+                                   "garbage", {"text": "x", "zh": None}]), "Oct 26", TODAY)
     assert [(p.text, p.zh) for p in r.places] == [("HZ", "杭州")]
 
 
 def test_unknown_purpose_defaults_to_tourism():
-    assert parse_request(trip(purpose="sightseeing"), "…", TODAY).purpose == "旅游"
+    assert parse_request(trip(purpose="sightseeing"), "Oct 26", TODAY).purpose == "旅游"
 
 
 # ---- 地名定位 ----
@@ -186,7 +186,7 @@ def test_locate_without_key():
 # ---- 端到端评估 ----
 
 def test_assess_blocks_jiuzhaigou():
-    a = assess(trip(), fake_geo(), "…", TODAY)
+    a = assess(trip(), fake_geo(), "Oct 26", TODAY)
     v = a.verdict
     assert not v.ok and v.deadline == dt.datetime(2026, 11, 6, 0, 0)
     assert [(i.rule, i.level, i.subject) for i in v.issues] == [("R6", "block", "九寨沟")]
@@ -194,20 +194,20 @@ def test_assess_blocks_jiuzhaigou():
 
 
 def test_assess_unlocated_place_is_warn_not_block():
-    a = assess(trip(places=[{"text": "a tiny guesthouse", "zh": "某小众民宿"}]), fake_geo(), "…", TODAY)
+    a = assess(trip(places=[{"text": "a tiny guesthouse", "zh": "某小众民宿"}]), fake_geo(), "Oct 26", TODAY)
     assert a.verdict.ok
     assert [(i.rule, i.level) for i in a.verdict.issues] == [("R6", "warn")]
 
 
 def test_assess_stops_when_info_missing():
-    a = assess(trip(nationality=None), fake_geo(), "…", TODAY)
+    a = assess(trip(nationality=None), fake_geo(), "Oct 26", TODAY)
     assert a.verdict is None and a.request.missing == ["国籍"]
     assert len(a.stops) == 3  # 地点照样定位，页面可以先画出来
 
 
 def test_assess_german_to_shangri_la_ok():
     a = assess(trip(nationality="德国", origin="泰国", places=[{"text": "Shangri-La", "zh": "香格里拉"}]),
-               fake_geo(), "…", TODAY)
+               fake_geo(), "Oct 26", TODAY)
     assert a.verdict.ok and a.verdict.policy == "unilateral_30d"
 
 
@@ -215,7 +215,17 @@ def test_places_abroad_are_left_out_with_a_note():
     """实测：Tokyo 被高德定位到黑龙江的“东京”，再被判成出界。境外地点不参与区域校验。"""
     r = parse_request(trip(places=[{"text": "Shanghai", "zh": "上海", "in_china": True},
                                    {"text": "Tokyo", "zh": "东京", "in_china": False},
-                                   {"text": "Hong Kong", "zh": "香港", "in_china": False}]), "…", TODAY)
+                                   {"text": "Hong Kong", "zh": "香港", "in_china": False}]), "Oct 26", TODAY)
     assert [p.zh for p in r.places] == ["上海"] and r.abroad == ["Tokyo", "Hong Kong"]
     assert any("outside mainland China" in x for x in r.assumptions_en)
     assert len(r.assumptions) == len(r.assumptions_en)
+
+
+@pytest.mark.parametrize("text, kept", [
+    ("I'm American. Want to see Hangzhou and the pandas in Chengdu.", False),  # 实测模型填了今天
+    ("landing Oct 26", True), ("arriving 26 Oct", True), ("on 10/26", True), ("next week", True),
+    ("this weekend", True), ("10月26日到上海", True), ("on Monday", True),
+])
+def test_model_dates_only_kept_when_text_has_a_date(text, kept):
+    r = parse_request(trip(), text, TODAY)
+    assert (r.entry_time is not None) is kept
