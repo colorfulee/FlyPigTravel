@@ -78,57 +78,66 @@ async function pick(i) {
   await p.click(`#examples .chip[data-i="${i}"]`);
 }
 
+// 每个场景的时长按 docs/travelmate/视频旁白稿.md 的旁白字数定（约 4 字 / 秒 + 2 秒余量）：
+// 画面动作做完后停在当前状态，等到这段旁白念完再进下一个场景
+const SECONDS = { 开场: 28, 场景1: 62, 场景2: 22, 场景3: 16, 场景4: 18, 场景5: 20, 收尾: 22, 结束: 0 };
+let sceneEnd = 0;
+async function scene(key, title) {
+  if (sceneEnd) { const left = sceneEnd - Date.now(); if (left > 0) await wait(left); }
+  chapter(title);
+  sceneEnd = Date.now() + SECONDS[key] * 1000;
+}
+
 // 开场：页面与输入
-chapter("开场：页面标题与输入框");
-await wait(3500);
+await scene("开场", "开场：页面标题与输入框");
+await wait(19000);
 await p.click("#q");
 await p.type("#q", await p.evaluate(() => EXAMPLES[0]), { delay: 22 });
-await wait(800);
 
 // 场景 1：九寨沟被拦下，给出替代（主打）
-chapter("场景 1：九寨沟被拦下（结论 → 倒计时 → 检查清单 → 行程 → 替代 → 提醒）");
+await scene("场景1", "场景 1：九寨沟被拦下（结论 → 倒计时 → 检查清单 → 替代 → 行程 → 提醒）");
 await p.click("#go");
 await finished();
-await glide("#verdict", 900); await wait(3000);
-await glide("#clockCard", 1000); await wait(4000);
-await glide("#issuesCard", 1000); await wait(3500);
-await glide("#planCard", 1000); await wait(2000);
-await read(500, 4000); await wait(1500);             // 替代推荐
-await glide("#plan", 1000); await read(700, 6000);  // 行程与车次
-await glide("#remindCard", 1000); await wait(1500);
-await read(900, 7000); await wait(1000);
+await glide("#verdict", 900); await wait(17500);     // 旁白：介绍游客 → 结论 → “不是模型说的”
+await glide("#clockCard", 1000); await wait(6500);   // 旁白：倒计时
+await glide("#issuesCard", 1000); await wait(1500);
+await glide("#planCard", 1000); await read(500, 7000);             // 旁白：替代推荐
+await glide("#plan", 1000); await read(700, 9000);                 // 旁白：行程与车次
+await glide("#remindCard", 1000); await read(900, 9500);           // 旁白：主动提醒
 
 // 场景 2：离境日自动提前一天
-chapter("场景 2：离境日自动提前一天");
+await scene("场景2", "场景 2：离境日自动提前一天");
 await pick(1); await finished();
-await glide("#verdict", 900); await wait(3500);
-await glide("#clockCard", 900); await wait(3500);
-await glide("#planCard", 900); await read(500, 4000); await wait(1000);
+await glide("#verdict", 900); await wait(4500);
+await glide("#clockCard", 900); await wait(5000);
+await glide("#planCard", 900); await read(500, 4500);
 
 // 场景 3：回出发国，不算过境
-chapter("场景 3：回出发国，不算过境");
+await scene("场景3", "场景 3：回出发国，不算过境");
 await pick(2); await finished();
-await glide("#verdict", 900); await wait(3000);
-await glide("#issuesCard", 900); await wait(4500);
+await glide("#verdict", 900); await wait(4500);
+await glide("#issuesCard", 900);
 
 // 场景 4：其实不需要过境免签
-chapter("场景 4：德国游客可 30 天免签");
+await scene("场景4", "场景 4：德国游客可 30 天免签");
 await pick(3); await finished();
-await glide("#verdict", 900); await wait(3500);
-await glide("#planCard", 900); await read(600, 4500); await wait(1000);
+await glide("#verdict", 900); await wait(5000);
+await glide("#planCard", 900); await read(600, 5500);
 
 // 场景 5：一张机票截图代替打字（多模态）
-chapter("场景 5：机票截图识别");
+await scene("场景5", "场景 5：机票截图识别");
 await pick(4);
 await p.waitForSelector("#thumbs .thumb"); await wait(1500);
 await finished();
 await glide("#verdict", 900); await wait(2500);
-await glide("#ticketCard", 900); await wait(5000);
-await glide("#clockCard", 900); await wait(3000);
+await glide("#ticketCard", 900); await wait(6500);
+await glide("#clockCard", 900);
 
 // 收尾：来源说明
-chapter("收尾：规则来源与免责声明");
-await glide("#foot", 1500, 300); await wait(5000);
+await scene("收尾", "收尾：规则来源与免责声明");
+await glide("#foot", 1500, 300);
+await scene("结束", "结束");  // 等收尾旁白念完
+chapters.pop();
 
 recording = false; await recorder;
 await ctx.close(); await browser.close();
