@@ -68,13 +68,13 @@ TravelMate · 240 小时过境免签行程规划助手（入境游）
 4. `4-ticket.png`：机票截图识别出入境段和离境段
 
 - 在线体验（离线预览页，5 个真实录制的案例）：https://claude.ai/artifact/3TvouH4hmPg7CU4akkHvRv
-- 演示视频：【待填】（分镜见 `docs/travelmate/演示剧本.md`）
+- 演示视频：https://www.bilibili.com/video/BV1BCnW6XEQP/（分镜见 `docs/travelmate/演示剧本.md`）
 
 ## 项目链接与复现方式
 
 - GitHub：https://github.com/colorfulee/FlyPigTravel
 - 在线 Demo：https://claude.ai/artifact/3TvouH4hmPg7CU4akkHvRv（离线预览页；完整服务需按下方方式本地运行）
-- 演示视频：【待填】
+- 演示视频：https://www.bilibili.com/video/BV1BCnW6XEQP/
 - 复现：
   ```bash
   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
